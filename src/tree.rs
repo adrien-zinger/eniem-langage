@@ -16,8 +16,9 @@ pub struct Function<'a> {
 
 #[derive(Debug)]
 pub struct Call<'a> {
-	pub block_on: bool,
+    pub block_on: bool,
     pub params: Vec<Statement<'a>>,
+	pub name: String
 }
 
 #[derive(Debug)]

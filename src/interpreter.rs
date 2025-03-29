@@ -1,170 +1,243 @@
-use crate::tree::{self, *};
+use crate::exec_tree::*;
 
-enum ENode {
-	Init(Init),
-	Assign(Assignation),
-	Copy,
-	/// Function call
-	Call(Call),
-	Delete,
-	Scope(Scope),
-	AfterScope,
-	/// Function declaration
-	Function(Function),
-	Empty
+use std::sync::atomic::{AtomicU64, AtomicPtr, Ordering};
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+enum EJob {
+	Expressions(Vec<Expression>),
+	Expression(Expression),
+	Write((String, Arc<AtomicPtr<Option<String>>>)),
+	Empty,
 }
 
-impl ENode {
-	fn blocking(&self) -> bool {
-		match self {
-			ENode::Init(n) => n.blocking,
-			_ => false
-		}
-	}
-
-	fn push(&mut self, c: ENode) {
-		match self {
-			ENode::Init(n) => n.childs.push(c),
-			_ => ()
-		}
-	}
+#[derive(Clone)]
+struct Job {
+    inner: EJob,
+	next: Option<EJob>,
+	scope: Arc<Scope>,
 }
-
-/// public access to interpreter
-pub fn run(input: &Compound) {
-	compound(input);
-}
-
-fn statement(input: &Statement) -> ENode {
-	match &input.inner {
-		EStatement::Function(input) => ENode::Function(function(input)),
-		EStatement::Str(text) => todo!("allocate variable with text"),
-		EStatement::Compound(input) => ENode::Scope(compound(input)),
-		EStatement::Copy(var) => todo!("create copy of variable content"),
-		EStatement::Ref(var) => todo!("get reference of variable"),
-		EStatement::Call(input) => ENode::Call(call(input)),
-	}
-}
-
-/// Node that doesn't produce jobs..
-struct Function {
-	/// Arguments tags (need an assignment)
-	arguments: Vec<String>,
-	scope: Box<Scope>,
-}
-
-/// Create an abstract function node that doesn't has to produce jobs. 
-fn function(input: &tree::Function) -> Function {
-	Function {
-		arguments: input.args.clone(),
-		scope: Box::new(compound(&input.inner))
-	}
-}
-
-/// Subnode that will use a function declaration to work.
-struct Call {
-}
-
-fn call(input: &tree::Call) -> Call {
-	todo!()
-}
-
-// If I see a compound:
-// { let a = "abc"; let b = a; b; }
-// 
-// Create a new scope that will be referenced in each subjobs.
-// Each Job that will be created in that subtree will increase the scope length.
-// When a Job in that subtree resolved, I decrease the atomic counter 'length' of the scope.
-//
-// The Job that assign the last expression to a "return box" is counted in the length.
-// When the counter reach 0, I create a "Delete" Job for each variable declarated in the scope excepted
-// for the return box.
 
 struct Scope {
-	len: usize,
-	/// Child nodes of the scope.
-	childs: Vec<ENode>,
-	/// Boxes's tags to delete.
-	to_delete: Vec<String>,
+	id: u64,
+    len: AtomicU64,
+	value: Arc<AtomicPtr<Option<String>>>,
+	/// Tags that are initialized inside that scope.
+	decls: Vec<String>,
+	/// Parent job
+	job: Option<Job>,
 }
 
+#[derive(Default)]
+pub struct Interpreter {
+    jobs: Arc<Mutex<Vec<Job>>>,
+	counter: AtomicU64,
+}
 
+impl Interpreter {
 
-/// Recursive way to create a tree from a serie of expression.
-fn expressions(mut node: ENode, exprs: &[Expression]) -> (ENode, Vec<String>) {
-	let mut index = 0;
-	let mut decls = vec![];
-	for expr in exprs {
-		index = index + 1;
-		let mut child = match &expr.inner {
-			EExpression::Statement(input) => statement(input),
-			EExpression::Assignation(input) => ENode::Assign(assignation(input)),
-			EExpression::Declaration(input) => {
-				let init = declaration(input);
-				let decl = init.tag.clone();
-				decls.push(decl);
-				ENode::Init(init)
-			}
-		};
+	fn new_id(&self) -> u64 {
+		self.counter.fetch_add(1, Ordering::SeqCst)
+	}
 
-		if child.blocking() {
-			let (child, mut sub_decls) = expressions(child, &exprs[index..]);
-			decls.append(&mut sub_decls);
-			node.push(child);
-			break;
+    /// public access to interpreter
+    pub fn run(&self, input: &[Expression]) {
+		println!("start interpreter");
+
+		self.expressions(input, Arc::new(Scope {
+			id: self.new_id(),
+			len: Default::default(),
+			value: Default::default(),
+			decls: vec![],
+			job: None
+		}));
+
+		loop {
+			let job = if let Ok(jobs) = &mut self.jobs.lock() {
+				if let Some(job) = jobs.pop() {
+					job.clone()
+				} else {
+					return;
+				}
+			} else {
+				continue;
+			};
+			self.exec(job);
 		}
+    }
 
-		node.push(child);
+    fn schedule(&self, job: Job) {
+		if let Ok(jobs) = &mut self.jobs.lock() {
+			jobs.push(job);
+		}
 	}
 
-	(node, decls)
-}
+    /// Create jobs for a list of expressions
+    fn expressions(&self, exprs: &[Expression], scope: Arc<Scope>) {
+        let mut index = 0;
+        for expr in exprs {
+            index = index + 1;
+			let blocking;
+            let mut job = match &expr.inner {
+                EExpression::Statement(input) => {
+					blocking = input.is_blocking();
+					Job {
+						inner: EJob::Expression(expr.clone()),
+						next: None,
+						scope: scope.clone(),
+					}
+				},
+                EExpression::Assignation(input) => {
+					blocking = input.block_on;
+					Job {
+						inner: EJob::Expression(expr.clone()),
+						next: None,
+						scope: scope.clone(),
+					}
+				},
+                EExpression::Declaration(input) => {
+					blocking = input.block_on;
+					Job {
+						inner: EJob::Expression(expr.clone()),
+						next: None,
+						scope: scope.clone(),
+					}
+                }
+            };
 
-fn compound(input: &Compound) -> Scope {
-	let scope = Scope {
-		len: input.inner.len(),
-		childs: vec![],
-		to_delete: vec![]
-	};
+            if blocking {
+				job.next = Some(EJob::Expressions(exprs[index..].to_vec()));
+                self.schedule(job);
+                break;
+            } else {
+                self.schedule(job);
+			}
+        }
+    }
 
-	if let (ENode::Scope(mut scope), mut decls) = expressions(ENode::Scope(scope), &input.inner) {
-		scope.to_delete.append(&mut decls);
-		return scope;
-	} else {
-		unreachable!()
+	fn assignation(&self, assign: &Assignation, job: Job) {
+		match &assign.to_assign.inner {
+			EStatement::Compound(input) => {
+				println!("assignation create a scope");
+				let value = Arc::<AtomicPtr::<Option<String>>>::default();
+				let job = Job {
+					inner: EJob::Write((format!("{}_{}", assign.var, job.scope.id), value.clone())),
+					scope: job.scope,
+					next: job.next,
+				};
+				let scope = Arc::new(Scope {
+					id: self.new_id(),
+            		len: AtomicU64::new(input.inner.len() as u64),
+					value,
+					decls: vec![], // todo should already be in the exec tree.
+					job: Some(job),
+        		});
+				self.expressions(&input.inner, scope);
+			},
+			EStatement::Str(val) => {
+				println!("Write {} into {}_{}", val, assign.var, job.scope.id);
+				if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
+					println!("Some scope ends with a str");
+					self.schedule(job.scope.job.clone().unwrap());
+				}
+				if let Some(next) = job.next {
+					match next {
+						EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
+						_ => unreachable!()
+					}
+				}
+			},
+			_ => todo!()
+		}
 	}
-}
 
-// A) let a = b;
-//  1. I build a Job that check if a box named 'b' is initialized.
-//  2. I build a child Job that initialize a box 'a' that is a new reference to 'b'.
-// B) let a = { ... }; (or statement to resolve in right part)
+	fn exec(&self, job: Job) {
+		match &job.inner {
+			EJob::Expression(expr) => {
+				let latest = expr.latest;
+				match &expr.inner {
+					EExpression::Statement(stat) => {
+						match &stat.inner {
+							EStatement::Compound(input) => {
+								println!("create a new scope from a scope");
+								let value = if latest {job.scope.value.clone() } else { Default::default() };
+								let compound = Job {
+									inner: EJob::Empty,
+									next: job.next,
+									scope: job.scope
+								};
+								let scope = Arc::new(Scope {
+									id: self.new_id(),
+            						len: AtomicU64::new(input.inner.len() as u64),
+									value,
+									decls: vec![], // todo should already be in the exec tree.
+									job: Some(compound),
+        						});
+								self.expressions(&input.inner, scope);
+							},
+							EStatement::Str(val) => {
+								if latest {
+									let val = Box::new(Some(val.to_owned()));
+									job.scope.value.store(Box::into_raw(val), Ordering::SeqCst);
+								}
 
-struct Assignation {
-	/// Is current node marked as "block_on"
-	blocking: bool,
-}
+								if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
+									println!("some scope end here");
+									self.schedule(job.scope.job.clone().unwrap());
+								}
+							},
+							EStatement::Call(call) => {
+								// read call.name in local, it should be possible
+								// to interpret it as a function.
+							},
+							_ => todo!()
+						}
+					},
+					EExpression::Assignation(assignation) => {
+						self.assignation(&assignation, job.clone());
+					},
+					EExpression::Declaration(assignation) => {
+						self.assignation(&assignation, job.clone());
+					}
+				}
+			},
+			EJob::Write((tag, value)) => {
+				let value = unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
+				if let Some(val) = *value {
+					println!("write {} into {}", val, tag);
+				} else {
+					eprintln!("Nothing to write");
+				}
 
-fn assignation(input: &tree::Assignation) -> Assignation {
-	todo!()
-}
+				if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
+					println!("some scope ends");
+					if let Some(job) = &job.scope.job {
+						self.schedule(job.clone());
+					}
+				}
 
-struct Init {
-	/// Is current node marked as "block_on"
-	blocking: bool,
-	/// New tag
-	tag: String,
-	/// Right Part that I need to initialize the new box.
-	right: Box<ENode>,
-	/// Childs (things that require current job to resolve first)
-	childs: Vec<ENode>
-}
-
-fn declaration(input: &tree::Assignation) -> Init {
-	Init {
-		blocking: input.block_on,
-		tag: input.var.clone(),
-		childs: vec![].into(),
-		right: Box::new(statement(&input.to_assign))
+				if let Some(next) = job.next {
+					match next {
+						EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
+						_ => unreachable!()
+					}
+				}
+			},
+			EJob::Empty => {
+				if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
+					println!("some scope ends");
+					if let Some(job) = &job.scope.job {
+						self.schedule(job.clone());
+					}
+				}
+				if let Some(next) = job.next {
+					match next {
+						EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
+						_ => unreachable!()
+					}
+				}
+			},
+			EJob::Expressions(_) => panic!("batch execution not covered")
+		}
 	}
 }
