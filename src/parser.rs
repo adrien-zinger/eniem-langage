@@ -11,6 +11,13 @@ use nom::IResult;
 use nom::Parser;
 use nom_locate::position;
 
+macro_rules! debug {
+    ($($rest:tt)*) => {
+        #[cfg(feature = "debug_parser")]
+        std::println!($($rest)*)
+    }
+}
+
 fn statement(s: Span) -> IResult<Span, Expression> {
     // case 1: ';' termination is optional
     let (s, _) = multispace0(s)?;
@@ -27,7 +34,7 @@ fn statement(s: Span) -> IResult<Span, Expression> {
     }
 
     let s = case1.0;
-    println!("statement case 2, fragment: {}", s.fragment());
+    debug!("statement case 2, fragment: {}", s.fragment());
     let (s, statement) = terminated(
         alt((
             copy_statement,
@@ -62,7 +69,7 @@ fn test_statement() {
 }
 
 fn copy_statement(s: Span) -> IResult<Span, Statement> {
-    println!("enter copy");
+    debug!("enter copy");
     let (s, _) = delimited(multispace0, tag("copy"), multispace0).parse(s)?;
     let (s, var) = alpha1(s)?;
     let (s, pos) = position(s)?;
@@ -91,7 +98,7 @@ fn string_statement(s: Span) -> IResult<Span, Statement> {
     let (s, pos) = position(s)?;
     let (s, string) = alpha0(s)?;
     let (s, _) = tag("\"")(s)?;
-    println!("string, fragment: {}", s.fragment());
+    debug!("string, fragment: {}", s.fragment());
     let res = Statement {
         pos,
         inner: EStatement::Str(string.to_string()),
@@ -105,7 +112,7 @@ fn compound_statement(s: Span) -> IResult<Span, Statement> {
     let (s, pos) = position(s)?;
     let (s, inner) = opt(expressions).parse(s)?;
     let (s, _) = delimited(multispace0, tag("}"), multispace0).parse(s)?;
-    println!("compound statement");
+    debug!("compound statement");
     let compound = Compound {
         inner: inner.unwrap_or_else(|| vec![]),
         block_on: block_on.is_some(),
@@ -140,7 +147,7 @@ fn function_statement(s: Span) -> IResult<Span, Statement> {
         unreachable!()
     };
 
-    println!("function statement, fragment: {}", s.fragment());
+    debug!("function statement, fragment: {}", s.fragment());
     let function = Function {
         args: args.iter().map(|s| s.to_string()).collect(),
         inner: body,
@@ -179,7 +186,7 @@ fn declaration(s: Span) -> IResult<Span, Expression> {
     let (s, var) = delimited(multispace1, alpha1, multispace0).parse(s)?;
     let (s, _) = tag("=")(s)?;
     let (s, expr) = delimited(multispace0, statement, multispace0).parse(s)?;
-    println!("declaration, fragment: {}", s.fragment());
+    debug!("declaration, fragment: {}", s.fragment());
 
     let to_assign = if let EExpression::Statement(to_assign) = expr.inner {
         to_assign
@@ -193,7 +200,7 @@ fn declaration(s: Span) -> IResult<Span, Expression> {
         to_assign: to_assign,
     };
 
-    println!("return declaration");
+    debug!("return declaration");
     let res = Expression {
         pos,
         inner: EExpression::Declaration(assignation),
@@ -221,7 +228,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
     let (s, var) = delimited(multispace0, alpha1, multispace0).parse(s)?;
     let (s, _) = tag("=")(s)?;
-    println!("assignation");
+    debug!("assignation");
     let (s, expr) = delimited(multispace0, statement, multispace0).parse(s)?;
 
     let to_assign = if let EExpression::Statement(to_assign) = expr.inner {
@@ -280,7 +287,7 @@ fn call_statement(s: Span) -> IResult<Span, Statement> {
     let call = Call {
         params,
         block_on: block_on.is_some(),
-		name: name.to_string()
+        name: name.to_string(),
     };
     let res = Statement {
         pos,
