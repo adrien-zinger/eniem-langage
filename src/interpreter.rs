@@ -155,8 +155,11 @@ impl Interpreter {
                         _ => unreachable!(),
                     }
                 }
-            }
-            _ => todo!(),
+            },
+			EStatement::Function(_f) => todo!(),
+			EStatement::Call(_c) => todo!(),
+			EStatement::Copy(_c) => todo!(),
+			EStatement::Ref(_c) => todo!(),
         }
     }
 
@@ -199,11 +202,14 @@ impl Interpreter {
                                     self.schedule(job.scope.job.clone().unwrap());
                                 }
                             }
-                            EStatement::Call(call) => {
+                            EStatement::Call(_call) => {
                                 // read call.name in local, it should be possible
                                 // to interpret it as a function.
-                            }
-                            _ => todo!(),
+								todo!()
+                            },
+							EStatement::Copy(_v) => todo!(),
+							EStatement::Ref(_v) => todo!(),
+							EStatement::Function(_v) => todo!()
                         }
                     }
                     EExpression::Assignation(assignation) => {

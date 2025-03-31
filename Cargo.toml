@@ -6,3 +6,8 @@ edition = "2021"
 [dependencies]
 nom = "8.0.0"
 nom_locate = "5.0.0"
+
+[features]
+default = ["debug_interpreter", "debug_parser"]
+debug_interpreter = []
+debug_parser = []

@@ -8,26 +8,32 @@ pub struct Statement<'a> {
     pub inner: EStatement<'a>,
 }
 
-#[derive(Debug)]
+impl PartialEq<Statement<'_>> for Statement<'_> {
+    fn eq(&self, other: &Statement) -> bool {
+        other.inner == self.inner
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Function<'a> {
     pub args: Vec<String>,
     pub inner: Compound<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Call<'a> {
     pub block_on: bool,
     pub params: Vec<Statement<'a>>,
     pub name: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Compound<'a> {
     pub block_on: bool,
     pub inner: Vec<Expression<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EStatement<'a> {
     Function(Function<'a>),
     Str(String /* inner text */),
@@ -43,14 +49,20 @@ pub struct Expression<'a> {
     pub inner: EExpression<'a>,
 }
 
-#[derive(Debug)]
+impl PartialEq<Expression<'_>> for Expression<'_> {
+    fn eq(&self, other: &Expression) -> bool {
+        other.inner == self.inner
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Assignation<'a> {
     pub block_on: bool,
     pub var: String,
     pub to_assign: Statement<'a>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EExpression<'a> {
     Statement(Statement<'a>),
     Declaration(Assignation<'a>),
