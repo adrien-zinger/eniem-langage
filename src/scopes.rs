@@ -9,10 +9,10 @@ macro_rules! debug {
 
 #[derive(Clone, Debug)]
 pub struct VarInfo {
-    name: String,
-    line: u32,
-    column: usize,
-    scope: String,
+    pub name: String,
+    pub line: u32,
+    pub column: usize,
+    pub scope: String,
 }
 
 pub struct Statement {
@@ -47,8 +47,9 @@ pub enum EStatement {
     Str(String /* inner text */),
     Compound(Compound),
     Copy(String /* variable name */),
-    Ref(String /* variable name */),
+    Ref(VarInfo),
     Call(Call),
+    Skip,
 }
 
 pub struct Expression {
@@ -149,14 +150,14 @@ impl Scopes {
             tree::EStatement::Ref(v) => {
                 if let Some(info) = lookup(&v, &decls) {
                     if info.scope != scope {
-                        refs.push(info);
+                        refs.push(info.clone());
                     }
+                    EStatement::Ref(info)
                 } else {
                     self.errors
                         .push(format!("{} not declared in this scope.", v));
+                    EStatement::Skip
                 }
-
-                EStatement::Ref(v)
             }
             tree::EStatement::Call(c) => {
                 if let Some(info) = lookup(&c.name, &decls) {

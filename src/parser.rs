@@ -19,16 +19,16 @@ macro_rules! debug {
 }
 
 fn extension(s: Span) -> IResult<Span, u8> {
-	let (s, _) = multispace0(s)?;
-	if let Ok((s, _)) = tag::<&str, nom_locate::LocatedSpan<&str>, ()>("(")(s) {
-		debug!("extension entry tag '('");
-    	let (s, args) =
-        	separated_list0(tag(","), delimited(multispace0, alpha1, multispace0)).parse(s)?;
-    	let (s, _) = tag(")")(s)?;
-		return Ok((s, 1));
-	}
-	debug!("direct return extension empty");
-	return Ok((s, 0));
+    let (s, _) = multispace0(s)?;
+    if let Ok((s, _)) = tag::<&str, nom_locate::LocatedSpan<&str>, ()>("(")(s) {
+        debug!("extension entry tag '('");
+        let (s, args) =
+            separated_list0(tag(","), delimited(multispace0, alpha1, multispace0)).parse(s)?;
+        let (s, _) = tag(")")(s)?;
+        return Ok((s, 1));
+    }
+    debug!("direct return extension empty");
+    return Ok((s, 0));
 }
 
 fn statement(s: Span) -> IResult<Span, Expression> {
@@ -37,9 +37,9 @@ fn statement(s: Span) -> IResult<Span, Expression> {
     let (s, pos) = position(s)?;
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
-		debug!("function or compound statement found");
-		let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
-		debug!("extensions: {:?}", exts);
+        debug!("function or compound statement found");
+        let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
+        debug!("extensions: {:?}", exts);
         let (s, _) = opt(tag(";")).parse(s)?;
         let res = Expression {
             pos,
@@ -52,17 +52,18 @@ fn statement(s: Span) -> IResult<Span, Expression> {
     let s = case1.0;
     debug!("statement case 2, fragment: {}", s.fragment());
     let (s, statement) = alt((
-    	copy_statement,
-    	call_statement, /* to check before ref, because it's ref + "("... */
-    	ref_statement,
-    	string_statement,
-    )).parse(s)?;
+        copy_statement,
+        call_statement, /* to check before ref, because it's ref + "("... */
+        ref_statement,
+        string_statement,
+    ))
+    .parse(s)?;
 
-	let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
-	debug!("extensions: {:?}", exts);
+    let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
+    debug!("extensions: {:?}", exts);
     let (s, _) = opt(tag(";")).parse(s)?;
 
-	// parse statement extensions: '()', '[]'
+    // parse statement extensions: '()', '[]'
     let res = Expression {
         pos,
         inner: EExpression::Statement(statement),
@@ -128,7 +129,7 @@ fn compound_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = delimited(multispace0, tag("{"), multispace0).parse(s)?;
     let (s, pos) = position(s)?;
     let (s, inner) = opt(expressions).parse(s)?;
-	debug!("expressions parsed\n{:#?}", inner);
+    debug!("expressions parsed\n{:#?}", inner);
     let (s, _) = delimited(multispace0, tag("}"), multispace0).parse(s)?;
     debug!("compound statement");
     let compound = Compound {
@@ -158,9 +159,9 @@ fn function_statement(s: Span) -> IResult<Span, Statement> {
     let (s, args) =
         separated_list0(tag(","), delimited(multispace0, alpha1, multispace0)).parse(s)?;
     let (s, _) = tag(")")(s)?;
-	debug!("function statement enter in compound");
+    debug!("function statement enter in compound");
     let (s, body) = compound_statement(s)?;
-	debug!("function statement quit compound");
+    debug!("function statement quit compound");
     let body = if let EStatement::Compound(body) = body.inner {
         body
     } else {
@@ -366,28 +367,26 @@ fn test_ast() {
 
 #[test]
 fn atest_assignation() {
-	let a = assignation(Span::new("a = (){}"));
-	debug!("{:#?}", a);
+    let a = assignation(Span::new("a = (){}"));
+    debug!("{:#?}", a);
 
-	let expected = Expression {
-		pos: Span::new(""),
-		inner: EExpression::Assignation(
-    	Assignation {
+    let expected = Expression {
+        pos: Span::new(""),
+        inner: EExpression::Assignation(Assignation {
             block_on: false,
             var: "a".to_string(),
             to_assign: Statement {
-				pos: Span::new(""),
-                inner: EStatement::Function(
-                    Function {
-                        args: vec![],
-                        inner: Compound {
-                            block_on: false,
-                            inner: vec![],
-                        },
+                pos: Span::new(""),
+                inner: EStatement::Function(Function {
+                    args: vec![],
+                    inner: Compound {
+                        block_on: false,
+                        inner: vec![],
                     },
-                ),
+                }),
             },
-		})};
-	assert!(a.is_ok());
-	assert_eq!(a.unwrap().1, expected);
+        }),
+    };
+    assert!(a.is_ok());
+    assert_eq!(a.unwrap().1, expected);
 }

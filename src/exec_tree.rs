@@ -3,6 +3,7 @@ use crate::scopes;
 #[derive(Debug, Clone)]
 pub struct Statement {
     pub inner: EStatement,
+    pub refs: Vec<String>,
 }
 
 impl Statement {
@@ -40,7 +41,7 @@ pub enum EStatement {
     Str(String /* inner text */),
     Compound(Compound),
     Copy(String /* variable name */),
-    Ref(String /* variable name */),
+    Ref(String),
     Call(Call),
 }
 
@@ -82,7 +83,10 @@ impl Into<Assignation> for scopes::Assignation {
     fn into(self) -> Assignation {
         Assignation {
             block_on: self.block_on,
-            var: self.var,
+            var: format!(
+                "{}#{}:{}:{}",
+                self.info.scope, self.info.line, self.info.column, self.info.name
+            ),
             to_assign: self.to_assign.into(),
         }
     }
@@ -115,9 +119,17 @@ impl Into<Statement> for scopes::Statement {
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Compound(n) => EStatement::Compound(n.into()),
                 scopes::EStatement::Copy(n) => EStatement::Copy(n),
-                scopes::EStatement::Ref(n) => EStatement::Ref(n),
+                scopes::EStatement::Ref(n) => {
+                    EStatement::Ref(format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
+                }
                 scopes::EStatement::Call(n) => EStatement::Call(n.into()),
+                scopes::EStatement::Skip => unreachable!(),
             },
+            refs: self
+                .refs
+                .into_iter()
+                .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
+                .collect(),
         }
     }
 }
