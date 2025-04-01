@@ -11,7 +11,7 @@ macro_rules! debug {
     }
 }
 
-type BoxType = Arc::<AtomicPtr::<Arc::<Mutex::<String>>>>;
+type BoxType = Arc<AtomicPtr<Arc<Mutex<String>>>>;
 
 #[derive(Clone)]
 enum EJob {
@@ -158,7 +158,7 @@ impl Interpreter {
         match &assign.to_assign.inner {
             EStatement::Compound(input) => {
                 debug!("assignation create a scope");
-                let value = Arc::<AtomicPtr::<Arc::<Mutex::<String>>>>::default();
+                let value = Arc::<AtomicPtr<Arc<Mutex<String>>>>::default();
                 let job = Job {
                     inner: EJob::Write((
                         format!("{}::{}", assign.var, job.scope.id),
@@ -197,26 +197,31 @@ impl Interpreter {
             EStatement::Call(_c) => todo!(),
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
-				debug!("try to assign {} from {c}", assign.var);
+                debug!("try to assign {} from {c}", assign.var);
                 let r = self.find(c, &job);
                 if r.is_none() {
                     self.schedule_later(job);
-					return;
+                    return;
                 }
-				let val = r.unwrap();
-				if let Ok(vars) = &mut self.variables.lock() {
+                let val = r.unwrap();
+                if let Ok(vars) = &mut self.variables.lock() {
                     let id = format!("{}::{}", assign.var, job.scope.id);
-					debug!("assign {} from {c}! {:?}", assign.var, val);
+                    debug!("assign {} from {c}! {:?}", assign.var, val);
                     vars.insert(id, val);
                 }
-				if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                    self.schedule(job.scope.job.clone().unwrap());
-                }
-                if let Some(next) = job.next {
-                    if let EJob::Expressions(exprs) = next {
-                    	self.expressions(&exprs, job.scope);
-                    }
-                }
+                self.complete_job(job);
+            }
+        }
+    }
+
+    /// Decrement scope len because we complete a Job and call nexts jobs.
+    fn complete_job(&self, job: Job) {
+        if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.schedule(job.scope.job.clone().unwrap());
+        }
+        if let Some(next) = job.next {
+            if let EJob::Expressions(exprs) = next {
+                self.expressions(&exprs, job.scope);
             }
         }
     }
@@ -251,13 +256,12 @@ impl Interpreter {
                             }
                             EStatement::Str(val) => {
                                 if latest {
-									let boxed = Box::new(Arc::new(Mutex::new(val.clone())));
-									job.scope.value.store(Box::into_raw(boxed), Ordering::SeqCst);
-								}
-                                if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                                    debug!("some scope end here");
-                                    self.schedule(job.scope.job.clone().unwrap());
+                                    let boxed = Box::new(Arc::new(Mutex::new(val.clone())));
+                                    job.scope
+                                        .value
+                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
                                 }
+                                self.complete_job(job);
                             }
                             EStatement::Call(_call) => {
                                 // read call.name in local, it should be possible
@@ -268,16 +272,16 @@ impl Interpreter {
                             EStatement::Ref(v) => {
                                 if latest {
                                     if let Some(val) = self.find(&v, &job) {
-										let boxed = Box::new(val);
-										job.scope.value.store(Box::into_raw(boxed), Ordering::SeqCst);
+                                        let boxed = Box::new(val);
+                                        job.scope
+                                            .value
+                                            .store(Box::into_raw(boxed), Ordering::SeqCst);
                                     } else {
                                         self.schedule_later(job);
                                         return;
                                     }
                                 }
-                                if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                                    self.schedule(job.scope.job.clone().unwrap());
-                                }
+                                self.complete_job(job);
                             }
                             EStatement::Function(_v) => todo!(),
                         }
@@ -292,35 +296,14 @@ impl Interpreter {
             }
             EJob::Write((tag, value)) => {
                 if let Ok(vars) = &mut self.variables.lock() {
-					let value =  *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
-					debug!("EJob::Write {:?} into {}", value, tag);
+                    let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
+                    debug!("EJob::Write {:?} into {}", value, tag);
                     vars.insert(tag.clone(), value);
                 }
-
-                if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                    if let Some(job) = &job.scope.job {
-                        self.schedule(job.clone());
-                    }
-                }
-                if let Some(next) = job.next {
-                    if let EJob::Expressions(exprs) = next {
-                        self.expressions(&exprs, job.scope);
-                    }
-                }
+                self.complete_job(job);
             }
             EJob::Empty => {
-                if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                    debug!("some scope ends");
-                    if let Some(job) = &job.scope.job {
-                        self.schedule(job.clone());
-                    }
-                }
-                if let Some(next) = job.next {
-                    match next {
-                        EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
-                        _ => unreachable!(),
-                    }
-                }
+                self.complete_job(job);
             }
             EJob::Expressions(_) => panic!("batch execution not covered"),
         }
