@@ -11,13 +11,26 @@ macro_rules! debug {
     }
 }
 
-type BoxType = Arc<AtomicPtr<Arc<Mutex<String>>>>;
+#[derive(Debug)]
+enum Variable {
+    Function(Mutex<Function>),
+    String(Mutex<String>),
+    Empty,
+}
+
+impl Default for Variable {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
+type BoxVariable = Arc<AtomicPtr<Arc<Variable>>>;
 
 #[derive(Clone)]
 enum EJob {
     Expressions(Vec<Expression>),
     Expression(Expression),
-    Write((String, BoxType)),
+    Write((String, BoxVariable)),
     Empty,
 }
 
@@ -31,7 +44,7 @@ struct Job {
 struct Scope {
     id: u64,
     len: AtomicU64,
-    value: BoxType,
+    value: BoxVariable,
     /// Tags that are initialized inside that scope.
     decls: Vec<String>,
     /// Parent job
@@ -42,7 +55,7 @@ struct Scope {
 pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
-    variables: Arc<Mutex<HashMap<String, Arc<Mutex<String>>>>>,
+    variables: Arc<Mutex<HashMap<String, Arc<Variable>>>>,
 }
 
 impl Interpreter {
@@ -50,7 +63,7 @@ impl Interpreter {
         self.counter.fetch_add(1, Ordering::SeqCst)
     }
 
-    fn find(&self, var: &str, job: &Job) -> Option<Arc<Mutex<String>>> {
+    fn find(&self, var: &str, job: &Job) -> Option<Arc<Variable>> {
         let mut scope = &job.scope;
         loop {
             let key = format!("{}::{}", var, scope.id);
@@ -158,7 +171,7 @@ impl Interpreter {
         match &assign.to_assign.inner {
             EStatement::Compound(input) => {
                 debug!("assignation create a scope");
-                let value = Arc::<AtomicPtr<Arc<Mutex<String>>>>::default();
+                let value = BoxVariable::default();
                 let job = Job {
                     inner: EJob::Write((
                         format!("{}::{}", assign.var, job.scope.id),
@@ -180,20 +193,19 @@ impl Interpreter {
                 if let Ok(vars) = &mut self.variables.lock() {
                     let id = format!("{}::{}", assign.var, job.scope.id);
                     debug!("Write {} into {}", val, id);
-                    vars.insert(id, Arc::new(Mutex::new(val.clone())));
+                    vars.insert(id, Arc::new(Variable::String(Mutex::new(val.clone()))));
                 }
-                if 1 == job.scope.len.fetch_sub(1, Ordering::SeqCst) {
-                    debug!("Some scope ends with a str");
-                    self.schedule(job.scope.job.clone().unwrap());
-                }
-                if let Some(next) = job.next {
-                    match next {
-                        EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
-                        _ => unreachable!(),
-                    }
-                }
+                self.complete_job(job);
             }
-            EStatement::Function(_f) => todo!(),
+            EStatement::Function(f) => {
+                debug!("Declare a function");
+                if let Ok(vars) = &mut self.variables.lock() {
+                    let id = format!("{}::{}", assign.var, job.scope.id);
+                    debug!("Write {:?} into {}", f, id);
+                    vars.insert(id, Arc::new(Variable::Function(Mutex::new(f.clone()))));
+                }
+                self.complete_job(job);
+            }
             EStatement::Call(_c) => todo!(),
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
@@ -256,17 +268,19 @@ impl Interpreter {
                             }
                             EStatement::Str(val) => {
                                 if latest {
-                                    let boxed = Box::new(Arc::new(Mutex::new(val.clone())));
+                                    let boxed = Box::new(Arc::new(Variable::String(Mutex::new(
+                                        val.clone(),
+                                    ))));
                                     job.scope
                                         .value
                                         .store(Box::into_raw(boxed), Ordering::SeqCst);
                                 }
                                 self.complete_job(job);
                             }
-                            EStatement::Call(_call) => {
+                            EStatement::Call(call) => {
                                 // read call.name in local, it should be possible
                                 // to interpret it as a function.
-                                todo!()
+                                debug!("try to call {}", call.name);
                             }
                             EStatement::Copy(_v) => todo!(),
                             EStatement::Ref(v) => {
