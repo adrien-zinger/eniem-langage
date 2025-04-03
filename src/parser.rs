@@ -6,7 +6,7 @@ use nom::character::complete::{alpha0, alpha1};
 use nom::character::complete::{multispace0, multispace1};
 use nom::combinator::{not, opt};
 use nom::multi::{many0, many1, separated_list0};
-use nom::sequence::{delimited, terminated};
+use nom::sequence::delimited;
 use nom::IResult;
 use nom::Parser;
 use nom_locate::position;
@@ -63,7 +63,8 @@ fn statement(s: Span) -> IResult<Span, Expression> {
     debug!("extensions: {:?}", exts);
     let (s, _) = opt(tag(";")).parse(s)?;
 
-    // parse statement extensions: '()', '[]'
+    let (s, _) = multispace0(s)?;
+    debug!("return statement {}", s.fragment());
     let res = Expression {
         pos,
         inner: EExpression::Statement(statement),
@@ -87,7 +88,7 @@ fn test_statement() {
 }
 
 fn copy_statement(s: Span) -> IResult<Span, Statement> {
-    debug!("enter copy");
+    debug!("enter copy {}", s.fragment());
     let (s, _) = delimited(multispace0, tag("copy"), multispace0).parse(s)?;
     let (s, var) = alpha1(s)?;
     let (s, pos) = position(s)?;
@@ -100,27 +101,39 @@ fn copy_statement(s: Span) -> IResult<Span, Statement> {
 }
 
 fn ref_statement(s: Span) -> IResult<Span, Statement> {
-    let (s, _) = opt(delimited(multispace0, tag("ref"), multispace0)).parse(s)?;
+    debug!("enter ref {}", s.fragment());
+    let (s, _) = multispace0(s)?;
+    let (s, _) = not(tag("let")).parse(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, _) = opt(tag("ref")).parse(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, _) = not(tag::<&str, nom_locate::LocatedSpan<&str>, ()>("let"))
+        .parse(s)
+        .unwrap();
     let (s, var) = alpha1(s)?;
     let (s, pos) = position(s)?;
     let res = Statement {
         pos,
         inner: EStatement::Ref(var.to_string()),
     };
-
+    debug!("return ref");
     Ok((s, res))
 }
 
 fn string_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter string {}", s.fragment());
+    let (s, _) = multispace0(s)?;
     let (s, _) = tag("\"")(s)?;
     let (s, pos) = position(s)?;
     let (s, string) = alpha0(s)?;
     let (s, _) = tag("\"")(s)?;
+    let (s, _) = multispace0(s)?;
     debug!("string, fragment: {}", s.fragment());
     let res = Statement {
         pos,
         inner: EStatement::Str(string.to_string()),
     };
+    debug!("return string");
     Ok((s, res))
 }
 
@@ -128,7 +141,10 @@ fn compound_statement(s: Span) -> IResult<Span, Statement> {
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
     let (s, _) = delimited(multispace0, tag("{"), multispace0).parse(s)?;
     let (s, pos) = position(s)?;
-    let (s, inner) = opt(expressions).parse(s)?;
+    debug!("look for expressions in compound {:?}", s);
+    let (s, inner) = opt(expressions)
+        .parse(s)
+        .unwrap_or_else(|_| (s, Some(vec![])));
     debug!("expressions parsed\n{:#?}", inner);
     let (s, _) = delimited(multispace0, tag("}"), multispace0).parse(s)?;
     debug!("compound statement");
@@ -151,14 +167,18 @@ fn test_compound_statement() {
     assert!(compound_statement(Span::new("{}")).is_ok());
     assert!(compound_statement(Span::new("ab")).is_err());
     assert!(compound_statement(Span::new("")).is_err());
+    compound_statement(Span::new("{ let a = (){ \"bar\" } a }")).unwrap();
 }
 
 fn function_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter function");
+    let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
     let (s, _) = tag("(")(s)?;
     let (s, args) =
         separated_list0(tag(","), delimited(multispace0, alpha1, multispace0)).parse(s)?;
     let (s, _) = tag(")")(s)?;
+    let (s, _) = multispace0(s)?;
     debug!("function statement enter in compound");
     let (s, body) = compound_statement(s)?;
     debug!("function statement quit compound");
@@ -200,6 +220,7 @@ fn test_function_statement() {
 
 /// Parse function declaration
 fn declaration(s: Span) -> IResult<Span, Expression> {
+    debug!("enter declaration {}", s.fragment());
     let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
@@ -292,6 +313,7 @@ fn param_statement(s: Span) -> IResult<Span, Statement> {
 }
 
 fn call_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter call {}", s.fragment());
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace1)).parse(s)?;
     // if there is no await tag, ensure that function name is not "await"
@@ -314,6 +336,8 @@ fn call_statement(s: Span) -> IResult<Span, Statement> {
         pos,
         inner: EStatement::Call(call),
     };
+
+    debug!("return call");
     Ok((s, res))
 }
 
@@ -330,7 +354,9 @@ fn test_call_statement() {
 
 /// Parse a list of expression (at least one)
 pub fn expressions(s: Span) -> IResult<Span, Vec<Expression>> {
-    many1(alt((declaration, assignation, statement))).parse(s)
+    let ret = many1(alt((declaration, assignation, statement))).parse(s);
+    debug!("found one expression: {}", ret.is_ok());
+    ret
 }
 
 #[test]
@@ -356,6 +382,21 @@ fn test_ast() {
 		let a = \"abc\";
 		printf(a);
 	";
+
+    let ast = expressions(Span::new(input));
+    assert!(ast.is_ok());
+    let ast = ast.unwrap().1;
+    assert_eq!(ast.len(), 2);
+}
+
+#[test]
+fn test_ast2() {
+    let input = "
+	let foo = (){ \"bar\"; }
+	let a = {
+		let foo = (){ \"barbar\" };
+		foo()
+	}";
 
     let ast = expressions(Span::new(input));
     assert!(ast.is_ok());

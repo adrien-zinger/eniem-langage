@@ -31,7 +31,7 @@ pub struct Function {
 pub struct Call {
     pub block_on: bool,
     pub params: Vec<Statement>,
-    pub name: String,
+    pub name: VarInfo,
 }
 
 pub struct Compound {
@@ -116,7 +116,7 @@ impl Scopes {
             tree::EStatement::Function(f) => {
                 let new_scope = format!("{}:block_{}_{}", scope, line, column);
                 // todo: modify parser in order to have line and column for each parameter.
-                let args = f
+                let args: Vec<VarInfo> = f
                     .args
                     .into_iter()
                     .map(|arg| VarInfo {
@@ -126,7 +126,9 @@ impl Scopes {
                         scope: new_scope.clone(),
                     })
                     .collect();
-                let inner = self.compound(f.inner, new_scope, decls.clone());
+                let mut decls = decls.clone();
+                decls.append(&mut args.clone());
+                let inner = self.compound(f.inner, new_scope, decls);
                 refs.append(&mut inner.refs.clone());
                 EStatement::Function(Function { inner, args })
             }
@@ -175,11 +177,20 @@ impl Scopes {
                     refs.append(&mut param.refs.clone());
                     params.push(param);
                 }
-                EStatement::Call(Call {
-                    block_on: c.block_on,
-                    params,
-                    name: c.name,
-                })
+                if let Some(info) = lookup(&c.name, &decls) {
+                    if info.scope != scope {
+                        refs.push(info.clone());
+                    }
+                    EStatement::Call(Call {
+                        block_on: c.block_on,
+                        params,
+                        name: info,
+                    })
+                } else {
+                    self.errors
+                        .push(format!("{} not declared in this scope.", c.name));
+                    EStatement::Skip
+                }
             }
         };
         Statement {

@@ -13,8 +13,12 @@ macro_rules! debug {
 
 #[derive(Debug)]
 enum Variable {
-    Function(Mutex<Function>),
+    /// Function tree and a list of captured variables.
+    Function(Mutex<(Function, Vec<(String, Arc<Variable>)>)>),
+    /// A mutable String
     String(Mutex<String>),
+    /// Nothing, also default variable. Usually it's
+    /// used as the default value of a scope.
     Empty,
 }
 
@@ -31,6 +35,7 @@ enum EJob {
     Expressions(Vec<Expression>),
     Expression(Expression),
     Write((String, BoxVariable)),
+    Delete(String),
     Empty,
 }
 
@@ -63,6 +68,9 @@ impl Interpreter {
         self.counter.fetch_add(1, Ordering::SeqCst)
     }
 
+    /// Look for a variable in memory. The variable is forced to be in
+    /// the current scope job or in a upper scope. If there is no variable
+    /// found, it means that the variable is still not initialized.
     fn find(&self, var: &str, job: &Job) -> Option<Arc<Variable>> {
         let mut scope = &job.scope;
         loop {
@@ -124,7 +132,9 @@ impl Interpreter {
         }
     }
 
-    /// Create jobs for a list of expressions
+    /// Create jobs for a list of expressions. Doesn't execute things
+    /// as the exec function, assignation or call_statement. Just scheduling
+    /// jobs.
     fn expressions(&self, exprs: &[Expression], scope: Arc<Scope>) {
         let mut index = 0;
         for expr in exprs {
@@ -202,11 +212,26 @@ impl Interpreter {
                 if let Ok(vars) = &mut self.variables.lock() {
                     let id = format!("{}::{}", assign.var, job.scope.id);
                     debug!("Write {:?} into {}", f, id);
-                    vars.insert(id, Arc::new(Variable::Function(Mutex::new(f.clone()))));
+                    let mut captures = vec![];
+                    for c in &f.captures {
+                        if let Some(var) = self.find(c, &job) {
+                            captures.push((c.clone(), var));
+                        } else {
+                            self.schedule_later(job);
+                            return;
+                        }
+                    }
+                    vars.insert(
+                        id,
+                        Arc::new(Variable::Function(Mutex::new((f.clone(), captures)))),
+                    );
                 }
                 self.complete_job(job);
             }
-            EStatement::Call(_c) => todo!(),
+            EStatement::Call(c) => {
+                let id = format!("{}::{}", assign.var, job.scope.id);
+                self.call_statement(c, job, false, Some(id))
+            }
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
                 debug!("try to assign {} from {c}", assign.var);
@@ -236,6 +261,111 @@ impl Interpreter {
                 self.expressions(&exprs, job.scope);
             }
         }
+    }
+
+    /// Execute a call statement.
+    ///  call: reference to the call statement.
+    ///  job: copy of the full job containing the statement.
+    ///  latest: is it the latest expression of the current scope.
+    ///  write: Some if the result has to be assigned to something, otherwise None.
+    fn call_statement(&self, call: &Call, job: Job, latest: bool, write: Option<String>) {
+        // find function in memory
+        let function = if let Some(function) = self.find(&call.name, &job) {
+            function
+        } else {
+            debug!("function not found");
+            self.schedule_later(job);
+            return;
+        };
+
+        let (function, captures) = if let Variable::Function(function) = &*function {
+            if let Ok(function) = function.lock() {
+                function.clone()
+            } else {
+                todo!()
+            }
+        } else {
+            debug!("Invalid type: cannot call a non function type");
+            todo!("manage error handling for abstract execution");
+        };
+
+        let scope_len = function.inner.inner.len() + call.params.len() + captures.len();
+        let scope = if let Some(write) = write {
+            let value = BoxVariable::default();
+            let job = Job {
+                inner: EJob::Write((write, value.clone())),
+                scope: job.scope,
+                next: job.next,
+            };
+            Arc::new(Scope {
+                id: self.new_id(),
+                len: AtomicU64::new(scope_len as u64),
+                value,
+                decls: vec![], // todo should already be in the exec tree.
+                job: Some(job),
+            })
+        } else {
+            let value = if latest {
+                job.scope.value.clone()
+            } else {
+                Default::default()
+            };
+
+            let compound = Job {
+                inner: EJob::Empty,
+                next: job.next,
+                scope: job.scope,
+            };
+
+            Arc::new(Scope {
+                id: self.new_id(),
+                len: AtomicU64::new(scope_len as u64),
+                value,
+                decls: vec![], // todo should already be in the exec tree.
+                job: Some(compound),
+            })
+        };
+
+        let scope_id = self.new_id();
+        let mut index = 0;
+        for arg in function.args {
+            index = index + 1;
+            // note: I think this check can be avoid if not in abstract execution.
+            let param = if index >= call.params.len() {
+                call.params[index].clone()
+            } else {
+                debug!("missing argument");
+                todo!("manage missing argument, with an error or Empty type");
+            };
+            // Create a new assignation tree.
+            let inner = EExpression::Assignation(Assignation {
+                block_on: false,
+                var: arg,
+                to_assign: param,
+            });
+            self.schedule(Job {
+                inner: EJob::Expression(Expression {
+                    latest: false,
+                    inner,
+                }),
+                next: None,
+                scope: scope.clone(),
+            });
+        }
+
+        // Define captured variables in the execution flow
+        for (tag, val) in captures {
+            let ptr = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(val))));
+            let job = Job {
+                inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr)),
+                scope: scope.clone(),
+                next: None,
+            };
+            self.schedule(job);
+        }
+
+        debug!("schedule expressions of function {}", &call.name);
+        self.expressions(&function.inner.inner, scope);
     }
 
     fn exec(&self, job: Job) {
@@ -274,13 +404,13 @@ impl Interpreter {
                                     job.scope
                                         .value
                                         .store(Box::into_raw(boxed), Ordering::SeqCst);
+                                } else {
+                                    debug!("dead string expression spoted");
                                 }
                                 self.complete_job(job);
                             }
                             EStatement::Call(call) => {
-                                // read call.name in local, it should be possible
-                                // to interpret it as a function.
-                                debug!("try to call {}", call.name);
+                                self.call_statement(call, job.clone(), latest, None)
                             }
                             EStatement::Copy(_v) => todo!(),
                             EStatement::Ref(v) => {
@@ -297,7 +427,28 @@ impl Interpreter {
                                 }
                                 self.complete_job(job);
                             }
-                            EStatement::Function(_v) => todo!(),
+                            EStatement::Function(v) => {
+                                if latest {
+                                    let mut captures = vec![];
+                                    for c in &v.captures {
+                                        if let Some(var) = self.find(c, &job) {
+                                            captures.push((c.clone(), var));
+                                        } else {
+                                            self.schedule_later(job);
+                                            return;
+                                        }
+                                    }
+                                    let boxed = Box::new(Arc::new(Variable::Function(Mutex::new(
+                                        (v.clone(), captures),
+                                    ))));
+                                    job.scope
+                                        .value
+                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
+                                } else {
+                                    debug!("dead string expression spoted");
+                                }
+                                self.complete_job(job);
+                            }
                         }
                     }
                     EExpression::Assignation(assignation) => {
@@ -316,9 +467,9 @@ impl Interpreter {
                 }
                 self.complete_job(job);
             }
-            EJob::Empty => {
-                self.complete_job(job);
-            }
+            EJob::Delete(id) => println!("delete {id} requested"),
+            EJob::Empty => self.complete_job(job),
+
             EJob::Expressions(_) => panic!("batch execution not covered"),
         }
     }

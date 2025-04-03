@@ -18,8 +18,10 @@ impl Statement {
 
 #[derive(Debug, Clone)]
 pub struct Function {
-    pub args: Vec<scopes::VarInfo>,
+    pub args: Vec<String>,
     pub inner: Compound,
+    /// Variables to capture.
+    pub captures: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,19 +96,26 @@ impl Into<Assignation> for scopes::Assignation {
 
 impl Into<Function> for scopes::Function {
     fn into(self) -> Function {
+        let form = |info: scopes::VarInfo| {
+            format!("{}#{}:{}:{}", info.scope, info.line, info.column, info.name)
+        };
+        let args = self.args.into_iter().map(form).collect();
+        let captures = self.inner.refs.iter().cloned().map(form).collect();
         Function {
-            args: self.args,
+            args,
             inner: self.inner.into(),
+            captures,
         }
     }
 }
 
 impl Into<Call> for scopes::Call {
     fn into(self) -> Call {
+        let n = self.name;
         Call {
             block_on: self.block_on,
             params: self.params.into_iter().map(|s| s.into()).collect(),
-            name: self.name,
+            name: format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name),
         }
     }
 }

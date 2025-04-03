@@ -18,7 +18,10 @@ macro_rules! debug {
 fn main() {
     let input = std::fs::read_to_string("main.n").unwrap();
     let ast: Vec<Expression> = expressions(Span::new(&input)).unwrap().1;
-    debug!("\n\n --------- ast ------\n\n {:#?}", ast);
+    debug!(
+        "\n\n --------- ast ------\n\n {:#?} \n\n ----------------------",
+        ast
+    );
     let mut scopes = scopes::Scopes { errors: vec![] };
     let ast = scopes.check(ast);
     debug!("scopes errors: {:?}", scopes.errors);
