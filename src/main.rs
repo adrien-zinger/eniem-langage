@@ -3,6 +3,7 @@ mod interpreter;
 mod parser;
 mod scopes;
 mod tree;
+mod memory;
 
 use interpreter::*;
 use parser::*;

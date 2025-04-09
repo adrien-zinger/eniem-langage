@@ -1,6 +1,6 @@
 use crate::exec_tree::*;
+use crate::memory::{self, *};
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -10,25 +10,6 @@ macro_rules! debug {
         std::println!($($rest)*)
     }
 }
-
-#[derive(Debug)]
-enum Variable {
-    /// Function tree and a list of captured variables.
-    Function(Mutex<(Function, Vec<(String, Arc<Variable>)>)>),
-    /// A mutable String
-    String(Mutex<String>),
-    /// Nothing, also default variable. Usually it's
-    /// used as the default value of a scope.
-    Empty,
-}
-
-impl Default for Variable {
-    fn default() -> Self {
-        Self::Empty
-    }
-}
-
-type BoxVariable = Arc<AtomicPtr<Arc<Variable>>>;
 
 #[derive(Clone)]
 enum EJob {
@@ -43,25 +24,25 @@ enum EJob {
 }
 
 #[derive(Clone)]
-struct Job {
+pub struct Job {
     inner: EJob,
     next: Option<EJob>,
-    scope: Arc<Scope>,
+    pub scope: Arc<Scope>,
 }
 
-struct Scope {
-    id: u64,
+pub struct Scope {
+    pub id: u64,
     len: AtomicU64,
     value: BoxVariable,
     /// Parent job
-    job: Option<Job>,
+    pub job: Option<Job>,
+	memory: Arc<Memory>,
 }
 
 #[derive(Default)]
 pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
-    variables: Arc<Mutex<HashMap<String, Arc<Variable>>>>,
 }
 
 impl Interpreter {
@@ -69,28 +50,6 @@ impl Interpreter {
         self.counter.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// Look for a variable in memory. The variable is forced to be in
-    /// the current scope job or in a upper scope. If there is no variable
-    /// found, it means that the variable is still not initialized.
-    fn find(&self, var: &str, job: &Job) -> Option<Arc<Variable>> {
-        let mut scope = &job.scope;
-        loop {
-            let key = format!("{}::{}", var, scope.id);
-            debug!("look at: {}", key);
-            if let Ok(vars) = self.variables.lock() {
-                let varbox = vars.get(&key);
-                if varbox.is_some() {
-                    return varbox.cloned();
-                }
-            }
-
-            if let Some(job) = &scope.job {
-                scope = &job.scope;
-            } else {
-                return None;
-            }
-        }
-    }
 
     /// public access to interpreter
     pub fn run(&self, input: &[Expression]) {
@@ -102,6 +61,7 @@ impl Interpreter {
                 id: self.new_id(),
                 len: Default::default(),
                 value: Default::default(),
+                memory: Default::default(),
                 job: None,
             }),
         );
@@ -202,38 +162,31 @@ impl Interpreter {
                 let scope = Arc::new(Scope {
                     id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
+                    memory: memory::push(job.scope.memory.clone()),
                     value,
                     job: Some(job),
                 });
                 self.expressions(&input.inner, scope);
             }
             EStatement::Str(val) => {
-                if let Ok(vars) = &mut self.variables.lock() {
-                    let id = format!("{}::{}", assign.var, job.scope.id);
-                    debug!("Write {} into {}", val, id);
-                    vars.insert(id, Arc::new(Variable::String(Mutex::new(val.clone()))));
-                }
+                let key = format!("{}::{}", assign.var, job.scope.id);
+				job.scope.memory.write(key, memory::string(val));
                 self.complete_job(job);
             }
             EStatement::Function(f) => {
                 debug!("Declare a function");
-                if let Ok(vars) = &mut self.variables.lock() {
-                    let id = format!("{}::{}", assign.var, job.scope.id);
-                    debug!("Write {:?} into {}", f, id);
-                    let mut captures = vec![];
-                    for c in &f.captures {
-                        if let Some(var) = self.find(c, &job) {
-                            captures.push((c.clone(), var));
-                        } else {
-                            self.schedule_later(job);
-                            return;
-                        }
+				let mut captures = vec![];
+                for c in &f.captures {
+                    if let Some(var) = job.scope.memory.find(c, &job) {
+                        captures.push((c.clone(), var));
+                    } else {
+                        self.schedule_later(job);
+                        return;
                     }
-                    vars.insert(
-                        id,
-                        Arc::new(Variable::Function(Mutex::new((f.clone(), captures)))),
-                    );
                 }
+                let key = format!("{}::{}", assign.var, job.scope.id);
+                debug!("Write {:?} into {}", f, key);
+				job.scope.memory.write(key, memory::function(f.clone(), captures));
                 self.complete_job(job);
             }
             EStatement::Call(c) => {
@@ -243,17 +196,15 @@ impl Interpreter {
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
                 debug!("try to assign {} from {c}", assign.var);
-                let r = self.find(c, &job);
+                let r = job.scope.memory.find(c, &job);
                 if r.is_none() {
                     self.schedule_later(job);
                     return;
                 }
                 let val = r.unwrap();
-                if let Ok(vars) = &mut self.variables.lock() {
-                    let id = format!("{}::{}", assign.var, job.scope.id);
-                    debug!("assign {} from {c}! {:?}", assign.var, val);
-                    vars.insert(id, val);
-                }
+                let key = format!("{}::{}", assign.var, job.scope.id);
+                debug!("assign {} from {c}, {:?}", assign.var, val);
+				job.scope.memory.write(key, val);
                 self.complete_job(job);
             }
         }
@@ -278,7 +229,7 @@ impl Interpreter {
     ///  write: Some if the result has to be assigned to something, otherwise None.
     fn call_statement(&self, call: &Call, job: Job, latest: bool, write: Option<String>) {
         // find function in memory
-        let function = if let Some(function) = self.find(&call.name, &job) {
+        let function = if let Some(function) = job.scope.memory.find(&call.name, &job) {
             function
         } else {
             debug!("function not found");
@@ -317,6 +268,7 @@ impl Interpreter {
                 id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
+				memory: memory::push(job.scope.memory.clone()),
                 job: Some(job),
             })
         } else {
@@ -325,6 +277,8 @@ impl Interpreter {
             } else {
                 Default::default()
             };
+
+			let memory = memory::push(job.scope.memory.clone());
 
             let compound = Job {
                 inner: EJob::Empty(decls),
@@ -336,6 +290,7 @@ impl Interpreter {
                 id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
+				memory,
                 job: Some(compound),
             })
         };
@@ -398,15 +353,20 @@ impl Interpreter {
                                 .iter()
                                 .map(|id| format!("{}::{}", id, new_scope_id))
                                 .collect();
+
+							let memory = memory::push(job.scope.memory.clone());
+
                             let compound = Job {
                                 inner: EJob::Empty(decls),
                                 next: job.next,
                                 scope: job.scope,
                             };
+
                             let scope = Arc::new(Scope {
                                 id: new_scope_id,
                                 len: AtomicU64::new(input.inner.len() as u64),
                                 value,
+								memory,
                                 job: Some(compound),
                             });
                             self.expressions(&input.inner, scope);
@@ -429,7 +389,7 @@ impl Interpreter {
                         EStatement::Copy(_v) => todo!(),
                         EStatement::Ref(v) => {
                             if latest {
-                                if let Some(val) = self.find(&v, &job) {
+                                if let Some(val) = job.scope.memory.find(&v, &job) {
                                     let boxed = Box::new(val);
                                     job.scope
                                         .value
@@ -445,17 +405,17 @@ impl Interpreter {
                             if latest {
                                 let mut captures = vec![];
                                 for c in &v.captures {
-                                    if let Some(var) = self.find(c, &job) {
+                                    if let Some(var) = job.scope.memory.find(c, &job) {
                                         captures.push((c.clone(), var));
                                     } else {
                                         self.schedule_later(job);
                                         return;
                                     }
                                 }
-                                let boxed = Box::new(Arc::new(Variable::Function(Mutex::new((
+                                let boxed = Box::new(memory::function(
                                     v.clone(),
                                     captures,
-                                )))));
+                                ));
                                 job.scope
                                     .value
                                     .store(Box::into_raw(boxed), Ordering::SeqCst);
@@ -474,11 +434,9 @@ impl Interpreter {
                 }
             }
             EJob::Write((tag, value, decls)) => {
-                if let Ok(vars) = &mut self.variables.lock() {
-                    let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
-                    debug!("EJob::Write {:?} into {}", value, tag);
-                    vars.insert(tag.clone(), value);
-                }
+                let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
+                debug!("EJob::Write {:?} into {}", value, tag);
+				job.scope.memory.write(tag.clone(), value);
                 self.schedule(Job {
 					inner: EJob::Delete(decls.clone()),
 					next: None,
@@ -488,13 +446,6 @@ impl Interpreter {
             }
             EJob::Delete(decls) => {
                 debug!("delete {:?} requested", decls);
-                if let Ok(vars) = &mut self.variables.lock() {
-					for decl in decls {
-						if vars.remove(decl).is_none() {
-							debug!("Error: {decl} does not exist in memory");
-						}
-					}
-				}
 			}
             EJob::Empty(decls) => {
 				self.schedule(Job {
