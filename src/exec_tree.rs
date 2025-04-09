@@ -35,6 +35,8 @@ pub struct Call {
 pub struct Compound {
     pub block_on: bool,
     pub inner: Vec<Expression>,
+    /// Variable the compound declare.
+    pub decls: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +154,11 @@ impl Into<Compound> for scopes::Compound {
         Compound {
             inner,
             block_on: self.block_on,
+            decls: self
+                .decls
+                .into_iter()
+                .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
+                .collect(),
         }
     }
 }

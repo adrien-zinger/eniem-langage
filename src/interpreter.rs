@@ -34,9 +34,12 @@ type BoxVariable = Arc<AtomicPtr<Arc<Variable>>>;
 enum EJob {
     Expressions(Vec<Expression>),
     Expression(Expression),
-    Write((String, BoxVariable)),
-    Delete(String),
-    Empty,
+    /// Write value from box into memory (end scope)
+    Write((String, BoxVariable, Vec<String> /* variables declared in the scope */)),
+    /// Free scope
+    Delete(Vec<String>),
+    /// End of scope
+    Empty(Vec<String>),
 }
 
 #[derive(Clone)]
@@ -50,8 +53,6 @@ struct Scope {
     id: u64,
     len: AtomicU64,
     value: BoxVariable,
-    /// Tags that are initialized inside that scope.
-    decls: Vec<String>,
     /// Parent job
     job: Option<Job>,
 }
@@ -101,7 +102,6 @@ impl Interpreter {
                 id: self.new_id(),
                 len: Default::default(),
                 value: Default::default(),
-                decls: vec![],
                 job: None,
             }),
         );
@@ -182,19 +182,27 @@ impl Interpreter {
             EStatement::Compound(input) => {
                 debug!("assignation create a scope");
                 let value = BoxVariable::default();
+                debug!("scope decls: {:?}", input.decls);
+				let new_scope_id = self.new_id();
+				let decls = input
+                    .decls
+                    .iter()
+                    .map(|id| format!("{}::{}", id, new_scope_id))
+                    .collect();
+
                 let job = Job {
                     inner: EJob::Write((
                         format!("{}::{}", assign.var, job.scope.id),
                         value.clone(),
+						decls,
                     )),
                     scope: job.scope,
                     next: job.next,
                 };
                 let scope = Arc::new(Scope {
-                    id: self.new_id(),
+                    id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
                     value,
-                    decls: vec![], // todo should already be in the exec tree.
                     job: Some(job),
                 });
                 self.expressions(&input.inner, scope);
@@ -289,19 +297,26 @@ impl Interpreter {
             todo!("manage error handling for abstract execution");
         };
 
-        let scope_len = function.inner.inner.len() + call.params.len() + captures.len();
+        let scope_len = function.inner.inner.len() + function.args.len() + captures.len();
+		let scope_id = self.new_id();
+		let mut decls: Vec<String> = function.inner
+            .decls
+            .iter()
+            .map(|id| format!("{}::{}", id, scope_id))
+            .collect();
+		decls.append(&mut function.args.iter().map(|id| format!("{}::{}", id, scope_id)).collect());
+		decls.append(&mut captures.iter().map(|(id, _)| format!("{}::{}", id, scope_id)).collect());
         let scope = if let Some(write) = write {
             let value = BoxVariable::default();
             let job = Job {
-                inner: EJob::Write((write, value.clone())),
+                inner: EJob::Write((write, value.clone(), decls)),
                 scope: job.scope,
                 next: job.next,
             };
             Arc::new(Scope {
-                id: self.new_id(),
+                id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
-                decls: vec![], // todo should already be in the exec tree.
                 job: Some(job),
             })
         } else {
@@ -312,26 +327,22 @@ impl Interpreter {
             };
 
             let compound = Job {
-                inner: EJob::Empty,
+                inner: EJob::Empty(decls),
                 next: job.next,
                 scope: job.scope,
             };
 
             Arc::new(Scope {
-                id: self.new_id(),
+                id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
-                decls: vec![], // todo should already be in the exec tree.
                 job: Some(compound),
             })
         };
 
-        let scope_id = self.new_id();
-        let mut index = 0;
-        for arg in function.args {
-            index = index + 1;
+        for (index, arg) in function.args.into_iter().enumerate() {
             // note: I think this check can be avoid if not in abstract execution.
-            let param = if index >= call.params.len() {
+            let param = if index < call.params.len() {
                 call.params[index].clone()
             } else {
                 debug!("missing argument");
@@ -357,7 +368,7 @@ impl Interpreter {
         for (tag, val) in captures {
             let ptr = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(val))));
             let job = Job {
-                inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr)),
+                inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr, vec![])),
                 scope: scope.clone(),
                 next: None,
             };
@@ -373,84 +384,87 @@ impl Interpreter {
             EJob::Expression(expr) => {
                 let latest = expr.latest;
                 match &expr.inner {
-                    EExpression::Statement(stat) => {
-                        match &stat.inner {
-                            EStatement::Compound(input) => {
-                                debug!("create a new scope from a scope");
-                                let value = if latest {
-                                    job.scope.value.clone()
-                                } else {
-                                    Default::default()
-                                };
-                                let compound = Job {
-                                    inner: EJob::Empty,
-                                    next: job.next,
-                                    scope: job.scope,
-                                };
-                                let scope = Arc::new(Scope {
-                                    id: self.new_id(),
-                                    len: AtomicU64::new(input.inner.len() as u64),
-                                    value,
-                                    decls: vec![], // todo should already be in the exec tree.
-                                    job: Some(compound),
-                                });
-                                self.expressions(&input.inner, scope);
+                    EExpression::Statement(stat) => match &stat.inner {
+                        EStatement::Compound(input) => {
+                            debug!("create a new scope from a scope");
+                            let value = if latest {
+                                job.scope.value.clone()
+                            } else {
+                                Default::default()
+                            };
+							let new_scope_id = self.new_id();
+                            let decls = input
+                                .decls
+                                .iter()
+                                .map(|id| format!("{}::{}", id, new_scope_id))
+                                .collect();
+                            let compound = Job {
+                                inner: EJob::Empty(decls),
+                                next: job.next,
+                                scope: job.scope,
+                            };
+                            let scope = Arc::new(Scope {
+                                id: new_scope_id,
+                                len: AtomicU64::new(input.inner.len() as u64),
+                                value,
+                                job: Some(compound),
+                            });
+                            self.expressions(&input.inner, scope);
+                        }
+                        EStatement::Str(val) => {
+                            if latest {
+                                let boxed =
+                                    Box::new(Arc::new(Variable::String(Mutex::new(val.clone()))));
+                                job.scope
+                                    .value
+                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                            } else {
+                                debug!("dead string expression spoted");
                             }
-                            EStatement::Str(val) => {
-                                if latest {
-                                    let boxed = Box::new(Arc::new(Variable::String(Mutex::new(
-                                        val.clone(),
-                                    ))));
+                            self.complete_job(job);
+                        }
+                        EStatement::Call(call) => {
+                            self.call_statement(call, job.clone(), latest, None)
+                        }
+                        EStatement::Copy(_v) => todo!(),
+                        EStatement::Ref(v) => {
+                            if latest {
+                                if let Some(val) = self.find(&v, &job) {
+                                    let boxed = Box::new(val);
                                     job.scope
                                         .value
                                         .store(Box::into_raw(boxed), Ordering::SeqCst);
                                 } else {
-                                    debug!("dead string expression spoted");
+                                    self.schedule_later(job);
+                                    return;
                                 }
-                                self.complete_job(job);
                             }
-                            EStatement::Call(call) => {
-                                self.call_statement(call, job.clone(), latest, None)
-                            }
-                            EStatement::Copy(_v) => todo!(),
-                            EStatement::Ref(v) => {
-                                if latest {
-                                    if let Some(val) = self.find(&v, &job) {
-                                        let boxed = Box::new(val);
-                                        job.scope
-                                            .value
-                                            .store(Box::into_raw(boxed), Ordering::SeqCst);
+                            self.complete_job(job);
+                        }
+                        EStatement::Function(v) => {
+                            if latest {
+                                let mut captures = vec![];
+                                for c in &v.captures {
+                                    if let Some(var) = self.find(c, &job) {
+                                        captures.push((c.clone(), var));
                                     } else {
                                         self.schedule_later(job);
                                         return;
                                     }
                                 }
-                                self.complete_job(job);
+                                let boxed = Box::new(Arc::new(Variable::Function(Mutex::new((
+                                    v.clone(),
+                                    captures,
+                                )))));
+                                job.scope
+                                    .value
+                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                            } else {
+                                debug!("dead string expression spoted");
                             }
-                            EStatement::Function(v) => {
-                                if latest {
-                                    let mut captures = vec![];
-                                    for c in &v.captures {
-                                        if let Some(var) = self.find(c, &job) {
-                                            captures.push((c.clone(), var));
-                                        } else {
-                                            self.schedule_later(job);
-                                            return;
-                                        }
-                                    }
-                                    let boxed = Box::new(Arc::new(Variable::Function(Mutex::new(
-                                        (v.clone(), captures),
-                                    ))));
-                                    job.scope
-                                        .value
-                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
-                                } else {
-                                    debug!("dead string expression spoted");
-                                }
-                                self.complete_job(job);
-                            }
+                            self.complete_job(job);
                         }
-                    }
+                    },
                     EExpression::Assignation(assignation) => {
                         self.assignation(&assignation, job.clone());
                     }
@@ -459,17 +473,37 @@ impl Interpreter {
                     }
                 }
             }
-            EJob::Write((tag, value)) => {
+            EJob::Write((tag, value, decls)) => {
                 if let Ok(vars) = &mut self.variables.lock() {
                     let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
                     debug!("EJob::Write {:?} into {}", value, tag);
                     vars.insert(tag.clone(), value);
                 }
+                self.schedule(Job {
+					inner: EJob::Delete(decls.clone()),
+					next: None,
+					scope: job.scope.clone(),
+				});
                 self.complete_job(job);
             }
-            EJob::Delete(id) => println!("delete {id} requested"),
-            EJob::Empty => self.complete_job(job),
-
+            EJob::Delete(decls) => {
+                debug!("delete {:?} requested", decls);
+                if let Ok(vars) = &mut self.variables.lock() {
+					for decl in decls {
+						if vars.remove(decl).is_none() {
+							debug!("Error: {decl} does not exist in memory");
+						}
+					}
+				}
+			}
+            EJob::Empty(decls) => {
+				self.schedule(Job {
+					inner: EJob::Delete(decls.clone()),
+					next: None,
+					scope: job.scope.clone(),
+				});
+                self.complete_job(job);
+			}
             EJob::Expressions(_) => panic!("batch execution not covered"),
         }
     }

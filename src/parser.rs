@@ -22,7 +22,7 @@ fn extension(s: Span) -> IResult<Span, u8> {
     let (s, _) = multispace0(s)?;
     if let Ok((s, _)) = tag::<&str, nom_locate::LocatedSpan<&str>, ()>("(")(s) {
         debug!("extension entry tag '('");
-        let (s, args) =
+        let (s, _args) =
             separated_list0(tag(","), delimited(multispace0, alpha1, multispace0)).parse(s)?;
         let (s, _) = tag(")")(s)?;
         return Ok((s, 1));
@@ -377,7 +377,7 @@ fn test_expressions() {
 }
 
 #[test]
-fn test_ast() {
+fn test_code_1() {
     let input = "
 		let a = \"abc\";
 		printf(a);
@@ -390,7 +390,7 @@ fn test_ast() {
 }
 
 #[test]
-fn test_ast2() {
+fn test_code_2() {
     let input = "
 	let foo = (){ \"bar\"; }
 	let a = {

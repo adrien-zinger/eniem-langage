@@ -208,6 +208,7 @@ impl Scopes {
         mut decls: Vec<VarInfo>,
     ) -> Compound {
         // Add all declarations of the scope.
+        let mut local_decls = vec![];
         for expr in &input.inner {
             if let tree::EExpression::Declaration(a) = &expr.inner {
                 let v = VarInfo {
@@ -216,7 +217,8 @@ impl Scopes {
                     line: expr.pos.location_line(),
                     column: expr.pos.get_column(),
                 };
-                decls.push(v);
+                decls.push(v.clone());
+                local_decls.push(v)
             }
         }
 
@@ -262,7 +264,7 @@ impl Scopes {
                 .collect(),
             block_on: input.block_on,
             refs,
-            decls,
+            decls: local_decls,
         }
     }
 
