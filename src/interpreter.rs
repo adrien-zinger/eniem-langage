@@ -16,7 +16,13 @@ enum EJob {
     Expressions(Vec<Expression>),
     Expression(Expression),
     /// Write value from box into memory (end scope)
-    Write((String, BoxVariable, Vec<String> /* variables declared in the scope */)),
+    Write(
+        (
+            String,
+            BoxVariable,
+            Vec<String>, /* variables declared in the scope */
+        ),
+    ),
     /// Free scope
     Delete(Vec<String>),
     /// End of scope
@@ -36,20 +42,38 @@ pub struct Scope {
     value: BoxVariable,
     /// Parent job
     pub job: Option<Job>,
-	memory: Arc<Memory>,
+    memory: Arc<Memory>,
 }
 
-#[derive(Default)]
 pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
+    is_abstract: bool,
+    functions: Arc<Mutex<Vec<(Function, Vec<(String, Arc<Variable>)>)>>>,
 }
 
 impl Interpreter {
+    pub fn default() -> Self {
+        Interpreter {
+            jobs: Default::default(),
+            counter: Default::default(),
+            is_abstract: false,
+            functions: Default::default(),
+        }
+    }
+
+    pub fn abstr() -> Self {
+        Interpreter {
+            jobs: Default::default(),
+            counter: Default::default(),
+            is_abstract: true,
+            functions: Default::default(),
+        }
+    }
+
     fn new_id(&self) -> u64 {
         self.counter.fetch_add(1, Ordering::SeqCst)
     }
-
 
     /// public access to interpreter
     pub fn run(&self, input: &[Expression]) {
@@ -71,12 +95,25 @@ impl Interpreter {
                 if let Some(job) = jobs.pop() {
                     job.clone()
                 } else {
-                    return;
+                    break;
                 }
             } else {
                 continue;
             };
             self.exec(job);
+        }
+
+        loop {
+            let function = if let Ok(functions) = &mut self.functions.lock() {
+                if let Some(function) = functions.pop() {
+                    function.clone()
+                } else {
+                    return;
+                }
+            } else {
+                continue;
+            };
+            debug!("start check function {:?}", function);
         }
     }
 
@@ -143,8 +180,8 @@ impl Interpreter {
                 debug!("assignation create a scope");
                 let value = BoxVariable::default();
                 debug!("scope decls: {:?}", input.decls);
-				let new_scope_id = self.new_id();
-				let decls = input
+                let new_scope_id = self.new_id();
+                let decls = input
                     .decls
                     .iter()
                     .map(|id| format!("{}::{}", id, new_scope_id))
@@ -154,7 +191,7 @@ impl Interpreter {
                     inner: EJob::Write((
                         format!("{}::{}", assign.var, job.scope.id),
                         value.clone(),
-						decls,
+                        decls,
                     )),
                     scope: job.scope,
                     next: job.next,
@@ -170,12 +207,18 @@ impl Interpreter {
             }
             EStatement::Str(val) => {
                 let key = format!("{}::{}", assign.var, job.scope.id);
-				job.scope.memory.write(key, memory::string(val));
+                if self.is_abstract {
+                    let val = memory::abstract_string();
+                    job.scope.memory.abstr_write(key, val);
+                } else {
+                    let val = memory::string(val);
+                    job.scope.memory.write(key, val);
+                }
                 self.complete_job(job);
             }
             EStatement::Function(f) => {
                 debug!("Declare a function");
-				let mut captures = vec![];
+                let mut captures = vec![];
                 for c in &f.captures {
                     if let Some(var) = job.scope.memory.find(c, &job) {
                         captures.push((c.clone(), var));
@@ -186,7 +229,19 @@ impl Interpreter {
                 }
                 let key = format!("{}::{}", assign.var, job.scope.id);
                 debug!("Write {:?} into {}", f, key);
-				job.scope.memory.write(key, memory::function(f.clone(), captures));
+
+                if self.is_abstract {
+                    if let Ok(functions) = &mut self.functions.lock() {
+                        functions.push((f.clone(), captures.clone()));
+                    }
+                    job.scope
+                        .memory
+                        .abstr_write(key, memory::function(f.clone(), captures));
+                } else {
+                    job.scope
+                        .memory
+                        .write(key, memory::function(f.clone(), captures));
+                }
                 self.complete_job(job);
             }
             EStatement::Call(c) => {
@@ -204,7 +259,11 @@ impl Interpreter {
                 let val = r.unwrap();
                 let key = format!("{}::{}", assign.var, job.scope.id);
                 debug!("assign {} from {c}, {:?}", assign.var, val);
-				job.scope.memory.write(key, val);
+                if self.is_abstract {
+                    job.scope.memory.abstr_write(key, val);
+                } else {
+                    job.scope.memory.write(key, val);
+                }
                 self.complete_job(job);
             }
         }
@@ -249,14 +308,27 @@ impl Interpreter {
         };
 
         let scope_len = function.inner.inner.len() + function.args.len() + captures.len();
-		let scope_id = self.new_id();
-		let mut decls: Vec<String> = function.inner
+        let scope_id = self.new_id();
+        let mut decls: Vec<String> = function
+            .inner
             .decls
             .iter()
             .map(|id| format!("{}::{}", id, scope_id))
             .collect();
-		decls.append(&mut function.args.iter().map(|id| format!("{}::{}", id, scope_id)).collect());
-		decls.append(&mut captures.iter().map(|(id, _)| format!("{}::{}", id, scope_id)).collect());
+        decls.append(
+            &mut function
+                .args
+                .iter()
+                .map(|id| format!("{}::{}", id, scope_id))
+                .collect(),
+        );
+        decls.append(
+            &mut captures
+                .iter()
+                .map(|(id, _)| format!("{}::{}", id, scope_id))
+                .collect(),
+        );
+
         let scope = if let Some(write) = write {
             let value = BoxVariable::default();
             let job = Job {
@@ -268,7 +340,7 @@ impl Interpreter {
                 id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
-				memory: memory::push(job.scope.memory.clone()),
+                memory: memory::push(job.scope.memory.clone()),
                 job: Some(job),
             })
         } else {
@@ -278,7 +350,7 @@ impl Interpreter {
                 Default::default()
             };
 
-			let memory = memory::push(job.scope.memory.clone());
+            let memory = memory::push(job.scope.memory.clone());
 
             let compound = Job {
                 inner: EJob::Empty(decls),
@@ -290,7 +362,7 @@ impl Interpreter {
                 id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
-				memory,
+                memory,
                 job: Some(compound),
             })
         };
@@ -303,12 +375,14 @@ impl Interpreter {
                 debug!("missing argument");
                 todo!("manage missing argument, with an error or Empty type");
             };
+
             // Create a new assignation tree.
             let inner = EExpression::Assignation(Assignation {
                 block_on: false,
                 var: arg,
                 to_assign: param,
             });
+
             self.schedule(Job {
                 inner: EJob::Expression(Expression {
                     latest: false,
@@ -347,14 +421,14 @@ impl Interpreter {
                             } else {
                                 Default::default()
                             };
-							let new_scope_id = self.new_id();
+                            let new_scope_id = self.new_id();
                             let decls = input
                                 .decls
                                 .iter()
                                 .map(|id| format!("{}::{}", id, new_scope_id))
                                 .collect();
 
-							let memory = memory::push(job.scope.memory.clone());
+                            let memory = memory::push(job.scope.memory.clone());
 
                             let compound = Job {
                                 inner: EJob::Empty(decls),
@@ -366,15 +440,18 @@ impl Interpreter {
                                 id: new_scope_id,
                                 len: AtomicU64::new(input.inner.len() as u64),
                                 value,
-								memory,
+                                memory,
                                 job: Some(compound),
                             });
                             self.expressions(&input.inner, scope);
                         }
                         EStatement::Str(val) => {
                             if latest {
-                                let boxed =
-                                    Box::new(Arc::new(Variable::String(Mutex::new(val.clone()))));
+                                let boxed = if self.is_abstract {
+                                    Box::new(memory::abstract_string())
+                                } else {
+                                    Box::new(memory::string(val))
+                                };
                                 job.scope
                                     .value
                                     .store(Box::into_raw(boxed), Ordering::SeqCst);
@@ -412,10 +489,7 @@ impl Interpreter {
                                         return;
                                     }
                                 }
-                                let boxed = Box::new(memory::function(
-                                    v.clone(),
-                                    captures,
-                                ));
+                                let boxed = Box::new(memory::function(v.clone(), captures));
                                 job.scope
                                     .value
                                     .store(Box::into_raw(boxed), Ordering::SeqCst);
@@ -436,25 +510,29 @@ impl Interpreter {
             EJob::Write((tag, value, decls)) => {
                 let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
                 debug!("EJob::Write {:?} into {}", value, tag);
-				job.scope.memory.write(tag.clone(), value);
+                if self.is_abstract {
+                    job.scope.memory.abstr_write(tag.clone(), value);
+                } else {
+                    job.scope.memory.write(tag.clone(), value);
+                }
                 self.schedule(Job {
-					inner: EJob::Delete(decls.clone()),
-					next: None,
-					scope: job.scope.clone(),
-				});
+                    inner: EJob::Delete(decls.clone()),
+                    next: None,
+                    scope: job.scope.clone(),
+                });
                 self.complete_job(job);
             }
             EJob::Delete(decls) => {
                 debug!("delete {:?} requested", decls);
-			}
+            }
             EJob::Empty(decls) => {
-				self.schedule(Job {
-					inner: EJob::Delete(decls.clone()),
-					next: None,
-					scope: job.scope.clone(),
-				});
+                self.schedule(Job {
+                    inner: EJob::Delete(decls.clone()),
+                    next: None,
+                    scope: job.scope.clone(),
+                });
                 self.complete_job(job);
-			}
+            }
             EJob::Expressions(_) => panic!("batch execution not covered"),
         }
     }

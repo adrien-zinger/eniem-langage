@@ -1,9 +1,9 @@
 mod exec_tree;
 mod interpreter;
+mod memory;
 mod parser;
 mod scopes;
 mod tree;
-mod memory;
 
 use interpreter::*;
 use parser::*;
@@ -33,5 +33,6 @@ fn main() {
         return;
     }
     let ast: Vec<exec_tree::Expression> = ast.into_iter().map(|s| s.into()).collect();
+    Interpreter::abstr().run(&ast);
     Interpreter::default().run(&ast);
 }

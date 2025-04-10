@@ -1,4 +1,6 @@
+use crate::memory::Variable;
 use crate::scopes;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct Statement {
@@ -22,6 +24,15 @@ pub struct Function {
     pub inner: Compound,
     /// Variables to capture.
     pub captures: Vec<String>,
+    /// Calls tracking in abstract interpretation
+    pub calls: Arc<
+        Mutex<
+            Vec<(
+                Vec<Arc<Variable>>, /* parameters */
+                Arc<Variable>,      /* return */
+            )>,
+        >,
+    >,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +118,7 @@ impl Into<Function> for scopes::Function {
             args,
             inner: self.inner.into(),
             captures,
+            calls: Default::default(),
         }
     }
 }
