@@ -11,10 +11,34 @@ macro_rules! debug {
     }
 }
 
+#[derive(PartialEq, Debug)]
+enum T {
+    String,
+    Function,
+    Uninit,
+}
+
+impl Default for T {
+    fn default() -> Self {
+        T::Uninit
+    }
+}
+
+#[derive(Default, PartialEq)]
+struct FunctionCall {
+    id: String,
+    inputs: Vec<(String, T)>,
+    output: T,
+}
+
 #[derive(Clone)]
 enum EJob {
-    Expressions(Vec<Expression>),
     Expression(Expression),
+    /// Case 1: One job is blocking and next job is a list of
+    ///         expressions
+    /// Case 2: Abstract interpretation need to wait for input
+    ///         before running the function compound statement.
+    Expressions(Vec<Expression>),
     /// Write value from box into memory (end scope)
     Write(
         (
@@ -34,6 +58,7 @@ pub struct Job {
     inner: EJob,
     next: Option<EJob>,
     pub scope: Arc<Scope>,
+    fc: Option<Arc<Mutex<FunctionCall>>>,
 }
 
 pub struct Scope {
@@ -144,6 +169,7 @@ impl Interpreter {
                         inner: EJob::Expression(expr.clone()),
                         next: None,
                         scope: scope.clone(),
+                        fc: None,
                     }
                 }
                 EExpression::Assignation(input) => {
@@ -152,6 +178,7 @@ impl Interpreter {
                         inner: EJob::Expression(expr.clone()),
                         next: None,
                         scope: scope.clone(),
+                        fc: None,
                     }
                 }
                 EExpression::Declaration(input) => {
@@ -160,6 +187,7 @@ impl Interpreter {
                         inner: EJob::Expression(expr.clone()),
                         next: None,
                         scope: scope.clone(),
+                        fc: None,
                     }
                 }
             };
@@ -195,7 +223,9 @@ impl Interpreter {
                     )),
                     scope: job.scope,
                     next: job.next,
+                    fc: None,
                 };
+
                 let scope = Arc::new(Scope {
                     id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
@@ -245,6 +275,7 @@ impl Interpreter {
                 self.complete_job(job);
             }
             EStatement::Call(c) => {
+                debug!("Execute Call statement in assignation");
                 let id = format!("{}::{}", assign.var, job.scope.id);
                 self.call_statement(c, job, false, Some(id))
             }
@@ -296,6 +327,8 @@ impl Interpreter {
             return;
         };
 
+        // From memory, get the function definition and the captured
+        // variables (external references)
         let (function, captures) = if let Variable::Function(function) = &*function {
             if let Ok(function) = function.lock() {
                 function.clone()
@@ -307,8 +340,13 @@ impl Interpreter {
             todo!("manage error handling for abstract execution");
         };
 
+        // Compute the scope len which is the compound length, the functions arguments
+        // to resolves and the captured variables to setup on the fly, all additionned.
         let scope_len = function.inner.inner.len() + function.args.len() + captures.len();
         let scope_id = self.new_id();
+
+        // Keep track of all declared variables for logging and maybe for a better
+        // management of memory later.
         let mut decls: Vec<String> = function
             .inner
             .decls
@@ -329,12 +367,43 @@ impl Interpreter {
                 .collect(),
         );
 
+        // If abstract, generate a FunctionCall that keep track of all
+        // scope input and output. Setup the inputs here.
+        let function_call = if self.is_abstract {
+            let mut inputs = vec![];
+            inputs.append(
+                &mut function
+                    .args
+                    .iter()
+                    .map(|id| (format!("{}::{}", id, scope_id), T::Uninit))
+                    .collect(),
+            );
+            inputs.append(
+                &mut captures
+                    .iter()
+                    .map(|(id, _)| (format!("{}::{}", id, scope_id), T::Uninit))
+                    .collect(),
+            );
+            Some(Arc::new(Mutex::new(FunctionCall {
+                id: call.name.clone(),
+                inputs,
+                output: T::Uninit,
+            })))
+        } else {
+            None
+        };
+
+        // Compute new scope, if the scope result is written in a variable,
+        // schedule a Write job as parent with a new box variable. Otherwise,
+        // make return value percolate to the upper scope copying the upper
+        // scope `value` reference.
         let scope = if let Some(write) = write {
             let value = BoxVariable::default();
             let job = Job {
                 inner: EJob::Write((write, value.clone(), decls)),
                 scope: job.scope,
                 next: job.next,
+                fc: function_call.clone(),
             };
             Arc::new(Scope {
                 id: scope_id,
@@ -344,6 +413,8 @@ impl Interpreter {
                 job: Some(job),
             })
         } else {
+            // Percolate only if the call is the latest expression
+            // in the upper scope.
             let value = if latest {
                 job.scope.value.clone()
             } else {
@@ -356,6 +427,7 @@ impl Interpreter {
                 inner: EJob::Empty(decls),
                 next: job.next,
                 scope: job.scope,
+                fc: function_call.clone(),
             };
 
             Arc::new(Scope {
@@ -390,6 +462,7 @@ impl Interpreter {
                 }),
                 next: None,
                 scope: scope.clone(),
+                fc: None,
             });
         }
 
@@ -400,12 +473,28 @@ impl Interpreter {
                 inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr, vec![])),
                 scope: scope.clone(),
                 next: None,
+                fc: None,
             };
+            debug!("schedule writing {}::{}", tag, scope.id);
             self.schedule(job);
         }
 
-        debug!("schedule expressions of function {}", &call.name);
-        self.expressions(&function.inner.inner, scope);
+        // If the interpreter is abstract, we want first to resolve the input
+        // types. Then, if the function call is considered as already resolved
+        // by the interpreter (registred in this set on function calls) we'll
+        // be able to return the output already processed. If it's considered
+        // as not resolved, we process the inner expression.
+        if self.is_abstract {
+            self.schedule_later(Job {
+                inner: EJob::Expressions(function.inner.inner),
+                scope,
+                next: None,
+                fc: function_call,
+            });
+        } else {
+            debug!("schedule expressions of function {}", &call.name);
+            self.expressions(&function.inner.inner, scope);
+        }
     }
 
     fn exec(&self, job: Job) {
@@ -434,6 +523,7 @@ impl Interpreter {
                                 inner: EJob::Empty(decls),
                                 next: job.next,
                                 scope: job.scope,
+                                fc: None,
                             };
 
                             let scope = Arc::new(Scope {
@@ -461,6 +551,7 @@ impl Interpreter {
                             self.complete_job(job);
                         }
                         EStatement::Call(call) => {
+                            debug!("Execute call statement");
                             self.call_statement(call, job.clone(), latest, None)
                         }
                         EStatement::Copy(_v) => todo!(),
@@ -511,6 +602,9 @@ impl Interpreter {
                 let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
                 debug!("EJob::Write {:?} into {}", value, tag);
                 if self.is_abstract {
+                    if let Some(fc) = &job.fc {
+                        debug!("function call detected");
+                    }
                     job.scope.memory.abstr_write(tag.clone(), value);
                 } else {
                     job.scope.memory.write(tag.clone(), value);
@@ -519,6 +613,7 @@ impl Interpreter {
                     inner: EJob::Delete(decls.clone()),
                     next: None,
                     scope: job.scope.clone(),
+                    fc: None,
                 });
                 self.complete_job(job);
             }
@@ -530,10 +625,48 @@ impl Interpreter {
                     inner: EJob::Delete(decls.clone()),
                     next: None,
                     scope: job.scope.clone(),
+                    fc: None,
                 });
                 self.complete_job(job);
             }
-            EJob::Expressions(_) => panic!("batch execution not covered"),
+            EJob::Expressions(exprs) => {
+                if self.is_abstract {
+                    let fc = job
+                        .fc
+                        .as_ref()
+                        .expect("abstract interpretation must have function call tracking");
+                    let reschedule;
+                    {
+                        let fc = &mut fc.lock().unwrap();
+                        let id = fc.id.clone();
+                        for (name, ty) in fc.inputs.iter_mut() {
+                            if ty == &T::Uninit {
+                                debug!("abstract call of {} waiting for {}", id, name);
+                                if let Some(v) = job.scope.memory.get(name) {
+                                    debug!("{} found", name);
+                                    match &*v {
+                                        Variable::AbstractString => *ty = T::String,
+                                        Variable::Function(_) => *ty = T::Function,
+                                        _ => panic!("unmanaged type in abstract execution"),
+                                    }
+                                } else {
+                                    debug!("{} still undefined", name);
+                                }
+                            }
+                        }
+                        debug!("{:?}", fc.inputs);
+                        reschedule = fc.inputs.iter().any(|(_, ty)| ty == &T::Uninit);
+                    }
+                    if reschedule {
+                        debug!("reschedule call");
+                        self.schedule_later(job);
+                    } else {
+                        self.expressions(exprs, job.scope);
+                    }
+                } else {
+                    debug!("unmanaged job detected")
+                }
+            }
         }
     }
 }

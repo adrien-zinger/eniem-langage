@@ -13,6 +13,7 @@ pub enum Variable {
     /// Nothing, also default variable. Usually it's
     /// used as the default value of a scope.
     Empty,
+    /// Empty string type to be used in abstract execution
     AbstractString,
 }
 
@@ -59,6 +60,16 @@ impl Memory {
                 return None;
             }
         }
+    }
+
+    pub fn get(&self, key: &str) -> Option<Arc<Variable>> {
+        if let Ok(vars) = self.map.read() {
+            let varbox = vars.get(key);
+            if varbox.is_some() {
+                return varbox.cloned();
+            }
+        }
+        return None;
     }
 
     pub fn write(&self, key: String, value: Arc<Variable>) {
