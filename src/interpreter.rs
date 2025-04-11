@@ -603,7 +603,12 @@ impl Interpreter {
                 debug!("EJob::Write {:?} into {}", value, tag);
                 if self.is_abstract {
                     if let Some(fc) = &job.fc {
-                        debug!("function call detected");
+                        let fc = &mut fc.lock().unwrap();
+                        match &*value {
+                            Variable::AbstractString => fc.output = T::String,
+                            Variable::Function(_) => fc.output = T::Function,
+                            _ => {}
+                        }
                     }
                     job.scope.memory.abstr_write(tag.clone(), value);
                 } else {
