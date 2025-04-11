@@ -19,6 +19,9 @@ impl Statement {
 
 #[derive(Debug, Clone)]
 pub struct Function {
+    /// Id of the function, which is NOT the variable to access
+    /// to it but a parsing Id to identify that subtree.
+    pub id: String,
     pub args: Vec<String>,
     pub inner: Compound,
     /// Variables to capture.
@@ -107,6 +110,7 @@ impl Into<Function> for scopes::Function {
         let args = self.args.into_iter().map(form).collect();
         let captures = self.inner.refs.iter().cloned().map(form).collect();
         Function {
+            id: self.id,
             args,
             inner: self.inner.into(),
             captures,

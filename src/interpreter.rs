@@ -1,6 +1,7 @@
 use crate::exec_tree::*;
 use crate::memory::{self, *};
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -74,7 +75,7 @@ pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
     is_abstract: bool,
-    functions: Arc<Mutex<Vec<Function>>>,
+    functions: Arc<Mutex<HashMap<String, Function>>>,
 }
 
 impl Interpreter {
@@ -128,17 +129,14 @@ impl Interpreter {
             self.exec(job);
         }
 
-        loop {
-            let function = if let Ok(functions) = &mut self.functions.lock() {
-                if let Some(function) = functions.pop() {
-                    function.clone()
-                } else {
-                    return;
+        if self.is_abstract {
+            debug!("Start checking functions calls");
+            for (id, f1) in self.functions.lock().unwrap().iter() {
+                debug!("check function {}", id);
+                for f2 in &*f1.same_as.lock().unwrap() {
+                    debug!("check if {} == {}", id, f2.id);
                 }
-            } else {
-                continue;
-            };
-            debug!("start check function {:?}", function);
+            }
         }
     }
 
@@ -262,7 +260,9 @@ impl Interpreter {
 
                 if self.is_abstract {
                     if let Ok(functions) = &mut self.functions.lock() {
-                        functions.push(f.clone());
+                        if !functions.contains_key(&f.id) {
+                            functions.insert(f.id.clone(), f.clone());
+                        }
                     }
                     job.scope
                         .memory

@@ -24,6 +24,7 @@ pub struct Statement {
 }
 
 pub struct Function {
+    pub id: String,
     pub args: Vec<VarInfo>,
     pub inner: Compound,
 }
@@ -128,9 +129,13 @@ impl Scopes {
                     .collect();
                 let mut decls = decls.clone();
                 decls.append(&mut args.clone());
-                let inner = self.compound(f.inner, new_scope, decls);
+                let inner = self.compound(f.inner, new_scope.clone(), decls);
                 refs.append(&mut inner.refs.clone());
-                EStatement::Function(Function { inner, args })
+                EStatement::Function(Function {
+                    id: new_scope,
+                    inner,
+                    args,
+                })
             }
             tree::EStatement::Str(text) => EStatement::Str(text),
             tree::EStatement::Compound(c) => {
