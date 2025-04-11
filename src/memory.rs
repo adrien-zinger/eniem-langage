@@ -95,7 +95,10 @@ impl Memory {
                     if let Some(v) = mem.get(&key) {
                         let val = &mut val.lock().unwrap().0;
                         if let Variable::Function(v) = &**v {
-                            val.calls = v.lock().unwrap().0.calls.clone();
+                            val.same_as
+                                .lock()
+                                .unwrap()
+                                .push(v.lock().unwrap().0.clone());
                         } else {
                             panic!("unexpected type");
                         }

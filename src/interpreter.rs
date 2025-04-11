@@ -74,7 +74,7 @@ pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
     is_abstract: bool,
-    functions: Arc<Mutex<Vec<(Function, Vec<(String, Arc<Variable>)>)>>>,
+    functions: Arc<Mutex<Vec<Function>>>,
 }
 
 impl Interpreter {
@@ -262,7 +262,7 @@ impl Interpreter {
 
                 if self.is_abstract {
                     if let Ok(functions) = &mut self.functions.lock() {
-                        functions.push((f.clone(), captures.clone()));
+                        functions.push(f.clone());
                     }
                     job.scope
                         .memory
