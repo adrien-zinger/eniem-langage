@@ -49,6 +49,21 @@ pub struct Expression<'a> {
     pub inner: EExpression<'a>,
 }
 
+impl<'a> Expression<'a> {
+    pub fn is_blocking(&self) -> bool {
+        let s = match &self.inner {
+            EExpression::Assignation(a) => return a.block_on,
+            EExpression::Declaration(a) => return a.block_on,
+            EExpression::Statement(s) => s,
+        };
+        match &s.inner {
+            EStatement::Compound(c) => c.block_on,
+            EStatement::Call(c) => c.block_on,
+            _ => false,
+        }
+    }
+}
+
 impl PartialEq<Expression<'_>> for Expression<'_> {
     fn eq(&self, other: &Expression) -> bool {
         other.inner == self.inner
