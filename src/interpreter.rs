@@ -70,9 +70,33 @@ pub struct Scope {
     memory: Arc<Memory>,
 }
 
+/// HashMap(key: Function ID, value: HashMap(key: Inputs, value: Output))
+/// with Inputs: [(variable ID wo scope ID, Variable)]
+/// and Output: Variable
+#[derive(Default)]
+struct FunctionCallsDictionary(
+    HashMap<String, HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>>,
+);
+
+impl FunctionCallsDictionary {
+    fn insert(
+        &mut self,
+        (id, inputs): (String, Vec<(String, Arc<Variable>)>),
+        output: Arc<Variable>,
+    ) {
+        self.0.entry(id).or_default().insert(inputs, output);
+    }
+
+    fn get(&self, id: &str, inputs: &Vec<(String, Arc<Variable>)>) -> Option<Arc<Variable>> {
+        self.0.get(id)?.get(inputs).cloned()
+    }
+}
+
 pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
+    /// Counter used to create unique ID.
     counter: AtomicU64,
+    /// True if the execution is abstract.
     is_abstract: bool,
     /// Dictionary of all observed functions during abstract execution.
     functions: Arc<Mutex<HashMap<String, Function>>>,
@@ -80,9 +104,7 @@ pub struct Interpreter {
     /// function call is observed for when a function has been called with
     /// some parameters and has produced a reponse, so we know his signature:
     /// inputs(X1, X2, ...) -> output(Y))
-    resolved_function_calls: Arc<
-        Mutex<HashMap<(String, Vec<(String, Arc<Variable>)> /* Xi */), Arc<Variable> /* Y */>>,
-    >,
+    resolved_function_calls: Arc<Mutex<FunctionCallsDictionary>>,
 }
 
 impl Interpreter {
@@ -726,7 +748,7 @@ impl Interpreter {
                         .resolved_function_calls
                         .lock()
                         .unwrap()
-                        .get(&(fc.id.clone(), fc.inputs.clone()))
+                        .get(&fc.id, &fc.inputs)
                     {
                         debug!("skip function call because already checked");
                         let boxed = Box::new(output.clone());
