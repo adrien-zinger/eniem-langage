@@ -394,7 +394,7 @@ impl Interpreter {
                     .collect(),
             );
             Some(Arc::new(Mutex::new(FunctionCall {
-                id: call.name.clone(),
+                id: function.id.clone(),
                 inputs,
                 output: memory::abstract_uninit(),
             })))
@@ -633,7 +633,7 @@ impl Interpreter {
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
                         }
-                        debug!("push new resovled function (Write)");
+                        debug!("push new resovled function (Write) id: {}", fc.id);
                         self.resolved_function_calls
                             .lock()
                             .unwrap()
@@ -667,7 +667,7 @@ impl Interpreter {
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
                         }
-                        debug!("push new resovled function");
+                        debug!("push new resovled function (Empty), id: {}", fc.id);
                         self.resolved_function_calls
                             .lock()
                             .unwrap()
