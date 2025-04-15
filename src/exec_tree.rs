@@ -30,6 +30,20 @@ pub struct Function {
     pub same_as: Arc<Mutex<Vec<Function>>>,
 }
 
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl std::hash::Hash for Function {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
+impl Eq for Function {}
+
 #[derive(Debug, Clone)]
 pub struct Call {
     pub block_on: bool,

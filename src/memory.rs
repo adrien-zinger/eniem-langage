@@ -1,8 +1,26 @@
 use crate::exec_tree::*;
 use crate::interpreter::*;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex, RwLock};
+
+/// Type detected by the interpreter during abstract execution.
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+pub enum AbstractVariable {
+    /// String type.
+    String,
+    /// The type is undefined or is pointless for the type checking.
+    /// A type can be replaced by "void" (nothing) when the variable
+    /// is never used.
+    Uninit,
+}
+
+impl Default for AbstractVariable {
+    fn default() -> Self {
+        AbstractVariable::Uninit
+    }
+}
 
 #[derive(Debug)]
 pub enum Variable {
@@ -14,7 +32,31 @@ pub enum Variable {
     /// used as the default value of a scope.
     Empty,
     /// Empty string type to be used in abstract execution
-    AbstractString,
+    Abstract(AbstractVariable),
+}
+
+impl PartialEq for Variable {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Variable::Function(a), Variable::Function(b)) => {
+                a.lock().unwrap().0 == b.lock().unwrap().0
+            }
+            (Variable::Abstract(a), Variable::Abstract(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Variable {}
+
+impl Hash for Variable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Variable::Function(f) => f.lock().unwrap().0.hash(state),
+            Variable::Abstract(a) => a.hash(state),
+            _ => panic!("Variable hashing used outside abstract execution"),
+        }
+    }
 }
 
 impl Default for Variable {
@@ -62,6 +104,7 @@ impl Memory {
         }
     }
 
+    /*
     pub fn get(&self, key: &str) -> Option<Arc<Variable>> {
         if let Ok(vars) = self.map.read() {
             let varbox = vars.get(key);
@@ -71,6 +114,7 @@ impl Memory {
         }
         return None;
     }
+    */
 
     pub fn write(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
@@ -83,9 +127,9 @@ impl Memory {
     pub fn abstr_write(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
             match &*value {
-                Variable::AbstractString => {
+                Variable::Abstract(AbstractVariable::String) => {
                     if let Some(v) = mem.get(&key) {
-                        if let Variable::AbstractString = **v {
+                        if let Variable::Abstract(AbstractVariable::String) = **v {
                         } else {
                             panic!("unexpected type");
                         }
@@ -126,7 +170,11 @@ pub fn string(val: &str) -> Arc<Variable> {
 }
 
 pub fn abstract_string() -> Arc<Variable> {
-    Arc::new(Variable::AbstractString)
+    Arc::new(Variable::Abstract(AbstractVariable::String))
+}
+
+pub fn abstract_uninit() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::Uninit))
 }
 
 pub fn function(val: Function, captures: Vec<(String, Arc<Variable>)>) -> Arc<Variable> {

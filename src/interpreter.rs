@@ -12,24 +12,15 @@ macro_rules! debug {
     }
 }
 
-#[derive(PartialEq, Debug)]
-enum T {
-    String,
-    Function,
-    Uninit,
-}
-
-impl Default for T {
-    fn default() -> Self {
-        T::Uninit
-    }
-}
-
-#[derive(Default, PartialEq)]
+/// Tracking function calls in abstract context.
+#[derive(Default, PartialEq, Eq, Hash)]
 struct FunctionCall {
+    /// Function ID
     id: String,
-    inputs: Vec<(String, T)>,
-    output: T,
+    /// Variable inputs
+    inputs: Vec<(String, Arc<Variable>)>,
+    /// Variable output
+    output: Arc<Variable>,
 }
 
 #[derive(Clone)]
@@ -51,14 +42,21 @@ enum EJob {
     /// Free scope
     Delete(Vec<String>),
     /// End of scope
-    Empty(Vec<String>),
+    Empty((BoxVariable, Vec<String>)),
 }
 
 #[derive(Clone)]
 pub struct Job {
+    /// Kind of job it contains.
     inner: EJob,
+    /// Jobs to be executed after completing this one.
     next: Option<EJob>,
+    /// Scope of the current job.
     pub scope: Arc<Scope>,
+    /// Related function call of this Job. A parameter
+    /// assignation, an external reference assignation (inputs)
+    /// or the main compound of a call (output) have a function
+    /// call.
     fc: Option<Arc<Mutex<FunctionCall>>>,
 }
 
@@ -66,7 +64,8 @@ pub struct Scope {
     pub id: u64,
     len: AtomicU64,
     value: BoxVariable,
-    /// Parent job
+    /// Parent job (can be Write or Empty), this is filled on function call
+    /// and entering a compound statement.
     pub job: Option<Job>,
     memory: Arc<Memory>,
 }
@@ -75,7 +74,15 @@ pub struct Interpreter {
     jobs: Arc<Mutex<Vec<Job>>>,
     counter: AtomicU64,
     is_abstract: bool,
+    /// Dictionary of all observed functions during abstract execution.
     functions: Arc<Mutex<HashMap<String, Function>>>,
+    /// Set of resolved function calls during abstract execution. (a resolved
+    /// function call is observed for when a function has been called with
+    /// some parameters and has produced a reponse, so we know his signature:
+    /// inputs(X1, X2, ...) -> output(Y))
+    resolved_function_calls: Arc<
+        Mutex<HashMap<(String, Vec<(String, Arc<Variable>)> /* Xi */), Arc<Variable> /* Y */>>,
+    >,
 }
 
 impl Interpreter {
@@ -85,6 +92,7 @@ impl Interpreter {
             counter: Default::default(),
             is_abstract: false,
             functions: Default::default(),
+            resolved_function_calls: Default::default(),
         }
     }
 
@@ -94,6 +102,7 @@ impl Interpreter {
             counter: Default::default(),
             is_abstract: true,
             functions: Default::default(),
+            resolved_function_calls: Default::default(),
         }
     }
 
@@ -375,19 +384,19 @@ impl Interpreter {
                 &mut function
                     .args
                     .iter()
-                    .map(|id| (format!("{}::{}", id, scope_id), T::Uninit))
+                    .map(|id| (id.clone(), memory::abstract_uninit()))
                     .collect(),
             );
             inputs.append(
                 &mut captures
                     .iter()
-                    .map(|(id, _)| (format!("{}::{}", id, scope_id), T::Uninit))
+                    .map(|(id, _)| (id.clone(), memory::abstract_uninit()))
                     .collect(),
             );
             Some(Arc::new(Mutex::new(FunctionCall {
                 id: call.name.clone(),
                 inputs,
-                output: T::Uninit,
+                output: memory::abstract_uninit(),
             })))
         } else {
             None
@@ -416,15 +425,23 @@ impl Interpreter {
             // Percolate only if the call is the latest expression
             // in the upper scope.
             let value = if latest {
+                debug!("use top scope value");
                 job.scope.value.clone()
             } else {
-                Default::default()
+                debug!("create default scope value");
+                if self.is_abstract {
+                    debug!("create default scope value (abstract setup)");
+                    let boxed = Box::new(memory::abstract_uninit());
+                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                } else {
+                    Default::default()
+                }
             };
 
             let memory = memory::push(job.scope.memory.clone());
 
             let compound = Job {
-                inner: EJob::Empty(decls),
+                inner: EJob::Empty((value.clone(), decls)),
                 next: job.next,
                 scope: job.scope,
                 fc: function_call.clone(),
@@ -508,7 +525,12 @@ impl Interpreter {
                             let value = if latest {
                                 job.scope.value.clone()
                             } else {
-                                Default::default()
+                                if self.is_abstract {
+                                    let boxed = Box::new(memory::abstract_uninit());
+                                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                                } else {
+                                    Default::default()
+                                }
                             };
                             let new_scope_id = self.new_id();
                             let decls = input
@@ -520,7 +542,7 @@ impl Interpreter {
                             let memory = memory::push(job.scope.memory.clone());
 
                             let compound = Job {
-                                inner: EJob::Empty(decls),
+                                inner: EJob::Empty((value.clone(), decls)),
                                 next: job.next,
                                 scope: job.scope,
                                 fc: None,
@@ -542,6 +564,7 @@ impl Interpreter {
                                 } else {
                                     Box::new(memory::string(val))
                                 };
+                                debug!("set scope value (str expr)");
                                 job.scope
                                     .value
                                     .store(Box::into_raw(boxed), Ordering::SeqCst);
@@ -604,11 +627,17 @@ impl Interpreter {
                 if self.is_abstract {
                     if let Some(fc) = &job.fc {
                         let fc = &mut fc.lock().unwrap();
+                        fc.output = value.clone();
                         match &*value {
-                            Variable::AbstractString => fc.output = T::String,
-                            Variable::Function(_) => fc.output = T::Function,
-                            _ => {}
+                            Variable::Abstract(_) => {}
+                            Variable::Function(_) => {}
+                            _ => panic!("non abstract type"),
                         }
+                        debug!("push new resovled function (Write)");
+                        self.resolved_function_calls
+                            .lock()
+                            .unwrap()
+                            .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
                     }
                     job.scope.memory.abstr_write(tag.clone(), value);
                 } else {
@@ -625,7 +654,26 @@ impl Interpreter {
             EJob::Delete(decls) => {
                 debug!("delete {:?} requested", decls);
             }
-            EJob::Empty(decls) => {
+            EJob::Empty((value, decls)) => {
+                if self.is_abstract {
+                    if let Some(fc) = &job.fc {
+                        debug!("get value (fc + abstract + empty)");
+                        let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
+                        debug!("got value (fc + abstract + empty)");
+                        let fc = &mut fc.lock().unwrap();
+                        fc.output = value.clone();
+                        match &*value {
+                            Variable::Abstract(_) => {}
+                            Variable::Function(_) => {}
+                            _ => panic!("non abstract type"),
+                        }
+                        debug!("push new resovled function");
+                        self.resolved_function_calls
+                            .lock()
+                            .unwrap()
+                            .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
+                    }
+                }
                 self.schedule(Job {
                     inner: EJob::Delete(decls.clone()),
                     next: None,
@@ -638,34 +686,56 @@ impl Interpreter {
                 if self.is_abstract {
                     let fc = job
                         .fc
-                        .as_ref()
+                        .clone()
                         .expect("abstract interpretation must have function call tracking");
-                    let reschedule;
-                    {
+                    if {
                         let fc = &mut fc.lock().unwrap();
                         let id = fc.id.clone();
                         for (name, ty) in fc.inputs.iter_mut() {
-                            if ty == &T::Uninit {
+                            if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
                                 debug!("abstract call of {} waiting for {}", id, name);
-                                if let Some(v) = job.scope.memory.get(name) {
+                                if let Some(v) = job.scope.memory.find(name, &job) {
                                     debug!("{} found", name);
-                                    match &*v {
-                                        Variable::AbstractString => *ty = T::String,
-                                        Variable::Function(_) => *ty = T::Function,
-                                        _ => panic!("unmanaged type in abstract execution"),
-                                    }
+                                    *ty = v.clone();
                                 } else {
                                     debug!("{} still undefined", name);
                                 }
                             }
                         }
                         debug!("{:?}", fc.inputs);
-                        reschedule = fc.inputs.iter().any(|(_, ty)| ty == &T::Uninit);
-                    }
-                    if reschedule {
+                        fc.inputs.iter().any(|(_, ty)| {
+                            if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                    } {
+                        // There is still inputs that have to be initialized.
+                        // Abstract execution require function call input to be
+                        // ready before being processed.
                         debug!("reschedule call");
                         self.schedule_later(job);
+                        return;
+                    }
+
+                    let fc = &mut fc.lock().unwrap();
+                    // All input are ready, check if we already resolved the function
+                    // call.
+                    if let Some(output) = self
+                        .resolved_function_calls
+                        .lock()
+                        .unwrap()
+                        .get(&(fc.id.clone(), fc.inputs.clone()))
+                    {
+                        debug!("skip function call because already checked");
+                        let boxed = Box::new(output.clone());
+                        job.scope
+                            .value
+                            .store(Box::into_raw(boxed), Ordering::SeqCst);
+                        self.complete_job(job);
                     } else {
+                        debug!("execute function expression: {:?}", exprs);
                         self.expressions(exprs, job.scope);
                     }
                 } else {
