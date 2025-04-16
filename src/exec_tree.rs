@@ -171,8 +171,11 @@ impl Into<Compound> for scopes::Compound {
     fn into(self) -> Compound {
         let mut inner: Vec<Expression> = self.inner.into_iter().map(|e| e.into()).collect();
 
-        let last = inner.len() - 1;
-        inner[last].latest = true;
+        if inner.len() > 0 {
+            let last = inner.len() - 1;
+            inner[last].latest = true;
+        }
+
         Compound {
             inner,
             block_on: self.block_on,

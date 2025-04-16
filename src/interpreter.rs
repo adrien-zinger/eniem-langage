@@ -70,13 +70,13 @@ pub struct Scope {
     memory: Arc<Memory>,
 }
 
+type FunctionCalls = HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>;
+
 /// HashMap(key: Function ID, value: HashMap(key: Inputs, value: Output))
 /// with Inputs: [(variable ID wo scope ID, Variable)]
 /// and Output: Variable
 #[derive(Default)]
-struct FunctionCallsDictionary(
-    HashMap<String, HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>>,
-);
+struct FunctionCallsDictionary(HashMap<String, FunctionCalls>);
 
 impl FunctionCallsDictionary {
     fn insert(
@@ -90,6 +90,10 @@ impl FunctionCallsDictionary {
     fn get(&self, id: &str, inputs: &Vec<(String, Arc<Variable>)>) -> Option<Arc<Variable>> {
         self.0.get(id)?.get(inputs).cloned()
     }
+
+    fn get_function_calls(&self, id: &str) -> Option<&FunctionCalls> {
+        self.0.get(id)
+    }
 }
 
 pub struct Interpreter {
@@ -99,6 +103,7 @@ pub struct Interpreter {
     /// True if the execution is abstract.
     is_abstract: bool,
     /// Dictionary of all observed functions during abstract execution.
+    /// Key: Function ID, Value: Function copy.
     functions: Arc<Mutex<HashMap<String, Function>>>,
     /// Set of resolved function calls during abstract execution. (a resolved
     /// function call is observed for when a function has been called with
@@ -161,13 +166,7 @@ impl Interpreter {
         }
 
         if self.is_abstract {
-            debug!("Start checking functions calls");
-            for (id, f1) in self.functions.lock().unwrap().iter() {
-                debug!("check function {}", id);
-                for f2 in &*f1.same_as.lock().unwrap() {
-                    debug!("check if {} == {}", id, f2.id);
-                }
-            }
+            self.check_functions_types();
         }
     }
 
@@ -655,7 +654,7 @@ impl Interpreter {
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
                         }
-                        debug!("push new resovled function (Write) id: {}", fc.id);
+                        debug!("push new resolved function (Write) id: {}", fc.id);
                         self.resolved_function_calls
                             .lock()
                             .unwrap()
@@ -689,7 +688,7 @@ impl Interpreter {
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
                         }
-                        debug!("push new resovled function (Empty), id: {}", fc.id);
+                        debug!("push new resolved function (Empty), id: {}", fc.id);
                         self.resolved_function_calls
                             .lock()
                             .unwrap()
@@ -706,12 +705,14 @@ impl Interpreter {
             }
             EJob::Expressions(exprs) => {
                 if self.is_abstract {
+                    debug!("start interpreting function compound (abstract)");
                     let fc = job
                         .fc
                         .clone()
                         .expect("abstract interpretation must have function call tracking");
                     if {
                         let fc = &mut fc.lock().unwrap();
+                        debug!("fc locked");
                         let id = fc.id.clone();
                         for (name, ty) in fc.inputs.iter_mut() {
                             if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
@@ -724,7 +725,7 @@ impl Interpreter {
                                 }
                             }
                         }
-                        debug!("{:?}", fc.inputs);
+                        debug!("fc inputs {:?}", fc.inputs);
                         fc.inputs.iter().any(|(_, ty)| {
                             if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
                                 true
@@ -765,5 +766,132 @@ impl Interpreter {
                 }
             }
         }
+    }
+
+    /// Abstract interpreter use to check if function types are valid.
+    /// Functions are assigned to mutable variable. It implies that
+    /// if a function is modifyed to be replaced by another, each calls
+    /// that have been registred for the old function must provide the same
+    /// behavior in the new function, and reciprocally.
+    fn check_functions_types(&self) {
+        // track new functions checks, if it's still 0 after
+        // a check run, break and return.
+        let mut checks = 0;
+        let base_scope = Arc::new(Scope {
+            id: self.new_id(),
+            len: Default::default(),
+            value: Default::default(),
+            memory: Default::default(),
+            job: None,
+        });
+        loop {
+            // Start check
+            let functions = self.functions.lock().unwrap().clone();
+            for (function_id, function) in functions.iter() {
+                let function_calls_opt = self
+                    .resolved_function_calls
+                    .lock()
+                    .unwrap()
+                    .get_function_calls(function_id)
+                    .cloned();
+                if let Some(function_calls) = function_calls_opt {
+                    // Others are functions observed to be assigned where the
+                    // current `function` where in memory.
+                    let others = function.same_as.lock().unwrap().clone();
+                    for other in others.iter() {
+                        debug!("check function {} and {} equality", function_id, other.id);
+                        // Iter the old function calls.
+                        for (inputs, output) in &function_calls {
+                            debug!("inputs/output {:?} {:?}", inputs, output);
+                            let other_output_opt = self
+                                .resolved_function_calls
+                                .lock()
+                                .unwrap()
+                                .get(&other.id, &inputs)
+                                .clone();
+                            if let Some(other_output) = other_output_opt {
+                                if other_output != *output {
+                                    panic!(
+                                        "failed to match return types for {} and {}",
+                                        function_id, other.id
+                                    );
+                                }
+                            } else {
+                                debug!("{} doesn't have resolved yet for this instance", other.id);
+                                // Simulate a new function call. Increment the tracking counter.
+                                checks = checks + 1;
+                                let scope_id = self.new_id();
+                                let memory = Arc::new(Memory::default());
+                                // Write input in memory.
+                                for (input_id, variable) in inputs {
+                                    let key = format!("{}::{}", input_id, scope_id);
+                                    memory.abstr_write(key, variable.clone());
+                                }
+                                let boxed = Box::new(memory::abstract_uninit());
+                                let value = Arc::new(AtomicPtr::new(Box::into_raw(boxed)));
+                                let fc = Arc::new(Mutex::new(FunctionCall {
+                                    id: other.id.clone(),
+                                    inputs: inputs.clone(),
+                                    output: memory::abstract_uninit(),
+                                }));
+                                let res_job = Job {
+                                    inner: EJob::Empty((value.clone(), vec![])),
+                                    next: None,
+                                    scope: base_scope.clone(),
+                                    fc: Some(fc.clone()),
+                                };
+                                let scope = Arc::new(Scope {
+                                    id: scope_id,
+                                    job: Some(res_job),
+                                    len: AtomicU64::new(1),
+                                    value,
+                                    memory,
+                                });
+                                let job = Job {
+                                    inner: EJob::Expressions(other.inner.inner.clone()),
+                                    fc: Some(fc.clone()),
+                                    next: None,
+                                    scope,
+                                };
+                                debug!("execute new expressions job");
+                                self.exec(job);
+                                debug!("executed");
+                                // Execute jobs until the FIFO is empty.
+                                loop {
+                                    let job = if let Ok(jobs) = &mut self.jobs.lock() {
+                                        if let Some(job) = jobs.pop() {
+                                            job.clone()
+                                        } else {
+                                            break;
+                                        }
+                                    } else {
+                                        continue;
+                                    };
+                                    self.exec(job);
+                                }
+
+                                debug!("access to fc");
+                                let other_output = &fc.lock().unwrap().output;
+                                if *other_output != *output {
+                                    panic!(
+                                        "invalid function assignation detected {:?} vs {:?}",
+                                        other_output, output
+                                    );
+                                }
+                                // end Running simulation
+                            }
+                        } // Iter through same functions
+                    } // Iter through calls
+                }
+            } // Iter through functions
+            if checks == 0 {
+                /* nothing more has been checked, end of the function checking */
+                debug!("function type checking end");
+                break;
+            } else {
+                /* some new functions have been registred. Relaunch a new check */
+                checks = 0;
+            }
+        } // Check loop
     }
 }
