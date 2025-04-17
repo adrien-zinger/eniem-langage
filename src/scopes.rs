@@ -124,8 +124,8 @@ impl Scopes {
                     .into_iter()
                     .map(|arg| VarInfo {
                         name: arg,
-                        line: line,
-                        column: column,
+                        line,
+                        column,
                         scope: new_scope.clone(),
                     })
                     .collect();
@@ -200,9 +200,7 @@ impl Scopes {
                 }
             }
             tree::EStatement::StdCall(c) => {
-                if c.name == "printf" {
-                } else if c.name == "atoi" {
-                } else if c.name == "itoa" {
+                if c.name == "printf" || c.name == "atoi" || c.name == "itoa" {
                 } else {
                     panic!("unknown std function {}", c.name);
                 }
@@ -249,7 +247,7 @@ impl Scopes {
             // Add all declarations of the scope.
             for expr in &input.inner {
                 debug!("start at {end}");
-                end = end + 1;
+                end += 1;
                 if let tree::EExpression::Declaration(a) = &expr.inner {
                     debug!("{} declared in scope {scope}", a.var);
                     let v = VarInfo {
@@ -288,7 +286,7 @@ impl Scopes {
                             refs.append(&mut a.to_assign.refs.clone());
                             EExpression::Assignation(a)
                         } else {
-                            self.errors.push(format!("variable not found"));
+                            self.errors.push("variable not found".to_string());
                             continue;
                         }
                     }
@@ -305,7 +303,7 @@ impl Scopes {
             } else {
                 debug!("end: {end} != len: {len}");
                 scope = format!("{}_", scope_pos);
-                scope_pos = scope_pos + 1;
+                scope_pos += 1;
             }
         }
         Compound {

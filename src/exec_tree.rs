@@ -92,10 +92,10 @@ pub enum EExpression {
     // todo, unary/binary operation... idk
 }
 
-impl Into<Expression> for scopes::Expression {
-    fn into(self) -> Expression {
+impl From<scopes::Expression> for Expression {
+    fn from(val: scopes::Expression) -> Self {
         Expression {
-            inner: match self.inner {
+            inner: match val.inner {
                 scopes::EExpression::Statement(n) => EExpression::Statement(n.into()),
                 scopes::EExpression::Declaration(n) => EExpression::Declaration(n.into()),
                 scopes::EExpression::Assignation(n) => EExpression::Assignation(n.into()),
@@ -105,51 +105,51 @@ impl Into<Expression> for scopes::Expression {
     }
 }
 
-impl Into<Assignation> for scopes::Assignation {
-    fn into(self) -> Assignation {
+impl From<scopes::Assignation> for Assignation {
+    fn from(val: scopes::Assignation) -> Self {
         Assignation {
-            block_on: self.block_on,
+            block_on: val.block_on,
             var: format!(
                 "{}#{}:{}:{}",
-                self.info.scope, self.info.line, self.info.column, self.info.name
+                val.info.scope, val.info.line, val.info.column, val.info.name
             ),
-            to_assign: self.to_assign.into(),
+            to_assign: val.to_assign.into(),
         }
     }
 }
 
-impl Into<Function> for scopes::Function {
-    fn into(self) -> Function {
+impl From<scopes::Function> for Function {
+    fn from(val: scopes::Function) -> Self {
         let form = |info: scopes::VarInfo| {
             format!("{}#{}:{}:{}", info.scope, info.line, info.column, info.name)
         };
-        let args = self.args.into_iter().map(form).collect();
-        let captures = self.inner.refs.iter().cloned().map(form).collect();
+        let args = val.args.into_iter().map(form).collect();
+        let captures = val.inner.refs.iter().cloned().map(form).collect();
         Function {
-            id: self.id,
+            id: val.id,
             args,
-            inner: self.inner.into(),
+            inner: val.inner.into(),
             captures,
             same_as: Default::default(),
         }
     }
 }
 
-impl Into<Call> for scopes::Call {
-    fn into(self) -> Call {
-        let n = self.name;
+impl From<scopes::Call> for Call {
+    fn from(val: scopes::Call) -> Self {
+        let n = val.name;
         Call {
-            block_on: self.block_on,
-            params: self.params.into_iter().map(|s| s.into()).collect(),
+            block_on: val.block_on,
+            params: val.params.into_iter().map(|s| s.into()).collect(),
             name: format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name),
         }
     }
 }
 
-impl Into<Statement> for scopes::Statement {
-    fn into(self) -> Statement {
+impl From<scopes::Statement> for Statement {
+    fn from(val: scopes::Statement) -> Self {
         Statement {
-            inner: match self.inner {
+            inner: match val.inner {
                 scopes::EStatement::Function(n) => EStatement::Function(n.into()),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
@@ -162,7 +162,7 @@ impl Into<Statement> for scopes::Statement {
                 scopes::EStatement::StdCall(n) => EStatement::StdCall(n.into()),
                 scopes::EStatement::Skip => unreachable!(),
             },
-            refs: self
+            refs: val
                 .refs
                 .into_iter()
                 .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
@@ -171,19 +171,19 @@ impl Into<Statement> for scopes::Statement {
     }
 }
 
-impl Into<Compound> for scopes::Compound {
-    fn into(self) -> Compound {
-        let mut inner: Vec<Expression> = self.inner.into_iter().map(|e| e.into()).collect();
+impl From<scopes::Compound> for Compound {
+    fn from(val: scopes::Compound) -> Self {
+        let mut inner: Vec<Expression> = val.inner.into_iter().map(|e| e.into()).collect();
 
-        if inner.len() > 0 {
+        if !inner.is_empty() {
             let last = inner.len() - 1;
             inner[last].latest = true;
         }
 
         Compound {
             inner,
-            block_on: self.block_on,
-            decls: self
+            block_on: val.block_on,
+            decls: val
                 .decls
                 .into_iter()
                 .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))

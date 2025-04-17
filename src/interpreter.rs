@@ -186,9 +186,7 @@ impl Interpreter {
     /// as the exec function, assignation or call_statement. Just scheduling
     /// jobs.
     fn expressions(&self, exprs: &[Expression], scope: Arc<Scope>) {
-        let mut index = 0;
-        for expr in exprs {
-            index = index + 1;
+        for (index, expr) in exprs.iter().enumerate() {
             let blocking;
             let mut job = match &expr.inner {
                 EExpression::Statement(input) => {
@@ -341,10 +339,8 @@ impl Interpreter {
         if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
             self.schedule(job.scope.job.clone().unwrap());
         }
-        if let Some(next) = job.next {
-            if let EJob::Expressions(exprs) = next {
-                self.expressions(&exprs, job.scope);
-            }
+        if let Some(EJob::Expressions(exprs)) = job.next {
+            self.expressions(&exprs, job.scope);
         }
     }
 
@@ -551,13 +547,11 @@ impl Interpreter {
                             debug!("create a new scope from a scope");
                             let value = if latest {
                                 job.scope.value.clone()
+                            } else if self.is_abstract {
+                                let boxed = Box::new(memory::abstract_uninit());
+                                Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
                             } else {
-                                if self.is_abstract {
-                                    let boxed = Box::new(memory::abstract_uninit());
-                                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
-                                } else {
-                                    Default::default()
-                                }
+                                Default::default()
                             };
                             let new_scope_id = self.new_id();
                             let decls = input
@@ -613,7 +607,7 @@ impl Interpreter {
                         EStatement::Copy(_v) => todo!(),
                         EStatement::Ref(v) => {
                             if latest {
-                                if let Some(val) = job.scope.memory.find(&v, &job) {
+                                if let Some(val) = job.scope.memory.find(v, &job) {
                                     let boxed = Box::new(val);
                                     job.scope
                                         .value
@@ -647,10 +641,10 @@ impl Interpreter {
                         }
                     },
                     EExpression::Assignation(assignation) => {
-                        self.assignation(&assignation, job.clone());
+                        self.assignation(assignation, job.clone());
                     }
                     EExpression::Declaration(assignation) => {
-                        self.assignation(&assignation, job.clone());
+                        self.assignation(assignation, job.clone());
                     }
                 }
             }
@@ -722,7 +716,7 @@ impl Interpreter {
                         .fc
                         .clone()
                         .expect("abstract interpretation must have function call tracking");
-                    if {
+                    let res = {
                         let fc = &mut fc.lock().unwrap();
                         debug!("fc locked");
                         let id = fc.id.clone();
@@ -739,13 +733,10 @@ impl Interpreter {
                         }
                         debug!("fc inputs {:?}", fc.inputs);
                         fc.inputs.iter().any(|(_, ty)| {
-                            if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
-                                true
-                            } else {
-                                false
-                            }
+                            matches!(**ty, Variable::Abstract(AbstractVariable::Uninit))
                         })
-                    } {
+                    };
+                    if res {
                         // There is still inputs that have to be initialized.
                         // Abstract execution require function call input to be
                         // ready before being processed.
@@ -819,7 +810,7 @@ impl Interpreter {
                                 .resolved_function_calls
                                 .lock()
                                 .unwrap()
-                                .get(&other.id, &inputs)
+                                .get(&other.id, inputs)
                                 .clone();
                             if let Some(other_output) = other_output_opt {
                                 if other_output != *output {
@@ -831,7 +822,7 @@ impl Interpreter {
                             } else {
                                 debug!("{} doesn't have resolved yet for this instance", other.id);
                                 // Simulate a new function call. Increment the tracking counter.
-                                checks = checks + 1;
+                                checks += 1;
                                 let scope_id = self.new_id();
                                 let memory = Arc::new(Memory::default());
                                 // Write input in memory.

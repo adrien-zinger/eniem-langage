@@ -28,7 +28,7 @@ fn extension(s: Span) -> IResult<Span, u8> {
         return Ok((s, 1));
     }
     debug!("direct return extension empty");
-    return Ok((s, 0));
+    Ok((s, 0))
 }
 
 fn statement(s: Span) -> IResult<Span, Expression> {
@@ -189,7 +189,7 @@ fn compound_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = delimited(multispace0, tag("}"), multispace0).parse(s)?;
     debug!("compound statement");
     let compound = Compound {
-        inner: inner.unwrap_or_else(|| vec![]),
+        inner: inner.unwrap_or_else(std::vec::Vec::new),
         block_on: block_on.is_some(),
     };
 
@@ -279,7 +279,7 @@ fn declaration(s: Span) -> IResult<Span, Expression> {
     let assignation = Assignation {
         block_on: block_on.is_some(),
         var: var.to_string(),
-        to_assign: to_assign,
+        to_assign,
     };
 
     debug!("return declaration");
@@ -323,7 +323,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
     let assignation = Assignation {
         block_on: block_on.is_some(),
         var: var.to_string(),
-        to_assign: to_assign,
+        to_assign,
     };
     let res = Expression {
         pos,

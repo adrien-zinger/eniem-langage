@@ -26,7 +26,7 @@ fn main() {
     let mut scopes = scopes::Scopes { errors: vec![] };
     let ast = scopes.check(ast);
     debug!("scopes errors: {:?}", scopes.errors);
-    if scopes.errors.len() > 0 {
+    if !scopes.errors.is_empty() {
         for e in scopes.errors {
             eprintln!("{e}");
         }

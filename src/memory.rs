@@ -6,20 +6,15 @@ use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Type detected by the interpreter during abstract execution.
-#[derive(PartialEq, Eq, Debug, Hash, Clone)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone, Default)]
 pub enum AbstractVariable {
     /// String type.
     String,
     /// The type is undefined or is pointless for the type checking.
     /// A type can be replaced by "void" (nothing) when the variable
     /// is never used.
+    #[default]
     Uninit,
-}
-
-impl Default for AbstractVariable {
-    fn default() -> Self {
-        AbstractVariable::Uninit
-    }
 }
 
 #[derive(Debug)]
