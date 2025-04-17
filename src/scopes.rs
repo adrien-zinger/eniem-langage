@@ -46,10 +46,12 @@ pub struct Compound {
 pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
+    Num(i32 /* inner signed number */),
     Compound(Compound),
     Copy(String /* variable name */),
     Ref(VarInfo),
     Call(Call),
+    StdCall(Call),
     Skip,
 }
 
@@ -138,6 +140,7 @@ impl Scopes {
                 })
             }
             tree::EStatement::Str(text) => EStatement::Str(text),
+            tree::EStatement::Num(num) => EStatement::Num(num),
             tree::EStatement::Compound(c) => {
                 let new_scope = format!("{}:block_{}_{}", scope, line, column);
                 EStatement::Compound(self.compound(c, new_scope, decls.clone()))
@@ -175,7 +178,6 @@ impl Scopes {
                     self.errors
                         .push(format!("{} not declared in this scope.", c.name));
                 }
-
                 let mut params = vec![];
                 for param in c.params {
                     let param = self.statement(param, scope.clone(), decls.clone());
@@ -196,6 +198,30 @@ impl Scopes {
                         .push(format!("{} not declared in this scope.", c.name));
                     EStatement::Skip
                 }
+            }
+            tree::EStatement::StdCall(c) => {
+                if c.name == "printf" {
+                } else if c.name == "atoi" {
+                } else if c.name == "itoa" {
+                } else {
+                    panic!("unknown std function {}", c.name);
+                }
+                let mut params = vec![];
+                for param in c.params {
+                    let param = self.statement(param, scope.clone(), decls.clone());
+                    refs.append(&mut param.refs.clone());
+                    params.push(param);
+                }
+                EStatement::StdCall(Call {
+                    block_on: c.block_on,
+                    params,
+                    name: VarInfo {
+                        name: c.name.clone(),
+                        line,
+                        column,
+                        scope,
+                    },
+                })
             }
         };
         Statement {

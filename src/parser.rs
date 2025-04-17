@@ -2,11 +2,11 @@ use crate::tree::*;
 
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{alpha0, alpha1};
+use nom::character::complete::{alpha1, anychar, digit1};
 use nom::character::complete::{multispace0, multispace1};
 use nom::combinator::{not, opt};
-use nom::multi::{many0, many1, separated_list0};
-use nom::sequence::delimited;
+use nom::multi::{many0, many1, many_till, separated_list0};
+use nom::sequence::{delimited, preceded};
 use nom::IResult;
 use nom::Parser;
 use nom_locate::position;
@@ -56,6 +56,7 @@ fn statement(s: Span) -> IResult<Span, Expression> {
         call_statement, /* to check before ref, because it's ref + "("... */
         ref_statement,
         string_statement,
+        num_statement,
     ))
     .parse(s)?;
 
@@ -123,15 +124,54 @@ fn ref_statement(s: Span) -> IResult<Span, Statement> {
 fn string_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter string {}", s.fragment());
     let (s, _) = multispace0(s)?;
-    let (s, _) = tag("\"")(s)?;
     let (s, pos) = position(s)?;
-    let (s, string) = alpha0(s)?;
-    let (s, _) = tag("\"")(s)?;
+    let (s, string) = quoted_string(s)?;
     let (s, _) = multispace0(s)?;
     debug!("string, fragment: {}", s.fragment());
     let res = Statement {
         pos,
         inner: EStatement::Str(string.to_string()),
+    };
+    debug!("return string");
+    Ok((s, res))
+}
+
+fn quoted_string(s: Span) -> IResult<Span, String> {
+    let (s, _) = tag("\"")(s)?;
+    let mut res = String::new();
+    let (mut s, (mut r, mut d)) = many_till(anychar, alt((tag("\\"), tag("\"")))).parse(s)?;
+    loop {
+        res.push_str(&r.iter().collect::<String>());
+        if *d.fragment() == "\"" {
+            return Ok((s, res));
+        }
+        res.push('\\');
+        let (s2, c) = anychar(s)?;
+        res.push(c);
+        (s, (r, d)) = many_till(anychar, alt((tag("\\"), tag("\"")))).parse(s2)?;
+    }
+}
+
+#[test]
+fn test_string() {
+    // Basic cases
+    assert_eq!(quoted_string(Span::new("\"\"")).unwrap().1, "");
+    assert_eq!(quoted_string(Span::new("\"abc\"")).unwrap().1, "abc");
+    assert_eq!(quoted_string(Span::new("\"a b,c@\"")).unwrap().1, "a b,c@");
+    assert_eq!(quoted_string(Span::new("\"a\\b\"")).unwrap().1, "a\\b");
+    assert_eq!(quoted_string(Span::new("\"a\\\"b\"")).unwrap().1, "a\\\"b");
+}
+
+fn num_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter string {}", s.fragment());
+    let (s, _) = multispace0(s)?;
+    let (s, pos) = position(s)?;
+    let (s, num) = preceded(opt(tag("-")), digit1).parse(s)?;
+    let (s, _) = multispace0(s)?;
+    debug!("num, fragment: {}", s.fragment());
+    let res = Statement {
+        pos,
+        inner: EStatement::Num(num.to_string().parse().unwrap()),
     };
     debug!("return string");
     Ok((s, res))
@@ -257,6 +297,7 @@ fn test_declaration() {
     assert!(declaration(Span::new("let a = {}")).is_ok());
     assert!(declaration(Span::new("let a = \"abc\";")).is_ok());
     assert!(declaration(Span::new("let a = \"abc\"")).is_ok());
+    assert!(declaration(Span::new("let a = \"abc \\\" 001  hW\";")).is_ok());
     assert!(declaration(Span::new("let a = variable;")).is_ok());
     assert!(declaration(Span::new("let a = copy variable;")).is_ok());
     assert!(declaration(Span::new("let a = ref variable;")).is_ok());
@@ -298,6 +339,9 @@ fn test_assignation() {
     assert!(assignation(Span::new("a = foo();")).is_ok());
     assert!(assignation(Span::new("a = ref b;")).is_ok());
     assert!(assignation(Span::new("a = ref b")).is_ok());
+    assert!(assignation(Span::new("a = \"hello\"")).is_ok());
+    assert!(assignation(Span::new("a = 0")).is_ok());
+    assert!(assignation(Span::new("a = -12")).is_ok());
 }
 
 fn param_statement(s: Span) -> IResult<Span, Statement> {
@@ -308,6 +352,7 @@ fn param_statement(s: Span) -> IResult<Span, Statement> {
         call_statement, /* to check before ref, because it's ref + "("... */
         ref_statement,
         string_statement,
+        num_statement,
     ))
     .parse(s)
 }
@@ -319,7 +364,7 @@ fn call_statement(s: Span) -> IResult<Span, Statement> {
     // if there is no await tag, ensure that function name is not "await"
     let (s, _) = not(tag("await")).parse(s)?;
     let (s, name) = delimited(multispace0, alpha1, multispace0).parse(s)?;
-
+    let (s, std) = opt(tag("!")).parse(s)?;
     let (s, _) = delimited(multispace0, tag("("), multispace0).parse(s)?;
     let (s, params) = separated_list0(
         tag(","),
@@ -332,9 +377,14 @@ fn call_statement(s: Span) -> IResult<Span, Statement> {
         block_on: block_on.is_some(),
         name: name.to_string(),
     };
+
     let res = Statement {
         pos,
-        inner: EStatement::Call(call),
+        inner: if std.is_some() {
+            EStatement::StdCall(call)
+        } else {
+            EStatement::Call(call)
+        },
     };
 
     debug!("return call");

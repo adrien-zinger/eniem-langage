@@ -63,10 +63,12 @@ pub struct Compound {
 pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
+    Num(i32 /* inner signed number */),
     Compound(Compound),
     Copy(String /* variable name */),
     Ref(String),
     Call(Call),
+    StdCall(Call),
 }
 
 #[derive(Debug, Clone)]
@@ -150,12 +152,14 @@ impl Into<Statement> for scopes::Statement {
             inner: match self.inner {
                 scopes::EStatement::Function(n) => EStatement::Function(n.into()),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
+                scopes::EStatement::Num(n) => EStatement::Num(n),
                 scopes::EStatement::Compound(n) => EStatement::Compound(n.into()),
                 scopes::EStatement::Copy(n) => EStatement::Copy(n),
                 scopes::EStatement::Ref(n) => {
                     EStatement::Ref(format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
                 }
                 scopes::EStatement::Call(n) => EStatement::Call(n.into()),
+                scopes::EStatement::StdCall(n) => EStatement::StdCall(n.into()),
                 scopes::EStatement::Skip => unreachable!(),
             },
             refs: self

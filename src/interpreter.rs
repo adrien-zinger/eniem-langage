@@ -274,6 +274,9 @@ impl Interpreter {
                 }
                 self.complete_job(job);
             }
+            EStatement::Num(_) => {
+                todo!()
+            }
             EStatement::Function(f) => {
                 debug!("Declare a function");
                 let mut captures = vec![];
@@ -308,6 +311,9 @@ impl Interpreter {
                 debug!("Execute Call statement in assignation");
                 let id = format!("{}::{}", assign.var, job.scope.id);
                 self.call_statement(c, job, false, Some(id))
+            }
+            EStatement::StdCall(call) => {
+                todo!("call std {:?} and assign", call)
             }
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
@@ -594,9 +600,15 @@ impl Interpreter {
                             }
                             self.complete_job(job);
                         }
+                        EStatement::Num(_) => {
+                            todo!()
+                        }
                         EStatement::Call(call) => {
                             debug!("Execute call statement");
                             self.call_statement(call, job.clone(), latest, None)
+                        }
+                        EStatement::StdCall(call) => {
+                            todo!("call std {:?}", call)
                         }
                         EStatement::Copy(_v) => todo!(),
                         EStatement::Ref(v) => {

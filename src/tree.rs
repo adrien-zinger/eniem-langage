@@ -37,10 +37,12 @@ pub struct Compound<'a> {
 pub enum EStatement<'a> {
     Function(Function<'a>),
     Str(String /* inner text */),
+    Num(i32 /* inner number (signed) */),
     Compound(Compound<'a>),
     Copy(String /* variable name */),
     Ref(String /* variable name */),
     Call(Call<'a>),
+    StdCall(Call<'a>),
 }
 
 #[derive(Debug)]
