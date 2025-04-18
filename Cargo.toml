@@ -1,5 +1,5 @@
 [package]
-name = "eniem_language"
+name = "eniem"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,8 @@ nom = "8.0.0"
 nom_locate = "5.0.0"
 
 [features]
-default = ["debug_interpreter", "debug_parser"]
+default = ["debug_main", "debug_interpreter", "debug_parser", "debug_scopes"]
 debug_interpreter = []
 debug_parser = []
+debug_main = []
+debug_scopes = []
