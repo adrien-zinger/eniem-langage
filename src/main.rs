@@ -17,7 +17,14 @@ macro_rules! debug {
 }
 
 fn main() {
-    let input = std::fs::read_to_string("main.n").unwrap();
+
+
+	let args: Vec<String> = std::env::args().collect();
+	if args.len() < 2 {
+		panic!("expected one argument");
+	}
+
+    let input = std::fs::read_to_string(&args[1]).unwrap();
     let ast: Vec<Expression> = expressions(Span::new(&input)).unwrap().1;
     debug!(
         "\n\n --------- ast ------\n\n {:#?} \n\n ----------------------",
