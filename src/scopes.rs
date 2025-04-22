@@ -70,7 +70,6 @@ pub enum EExpression {
     Statement(Statement),
     Declaration(Assignation),
     Assignation(Assignation),
-    // todo, unary/binary operation... idk
 }
 
 /// Look into declaration list for a valid variable.
@@ -141,6 +140,7 @@ impl Scopes {
             }
             tree::EStatement::Str(text) => EStatement::Str(text),
             tree::EStatement::Num(num) => EStatement::Num(num),
+            tree::EStatement::Operation(_) => todo!(),
             tree::EStatement::Compound(c) => {
                 let new_scope = format!("{}:block_{}_{}", scope, line, column);
                 EStatement::Compound(self.compound(c, new_scope, decls.clone()))

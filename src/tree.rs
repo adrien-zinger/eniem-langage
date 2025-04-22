@@ -43,6 +43,7 @@ pub enum EStatement<'a> {
     Ref(String /* variable name */),
     Call(Call<'a>),
     StdCall(Call<'a>),
+    Operation(Box<Operation<'a>>),
 }
 
 #[derive(Debug)]
@@ -85,4 +86,54 @@ pub enum EExpression<'a> {
     Declaration(Assignation<'a>),
     Assignation(Assignation<'a>),
     // todo, unary/binary operation... idk
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Operator {
+    // /// ==
+    // EqualEqual,
+    // /// !=
+    // NotEqual,
+    // /// >
+    // GreaterThan,
+    // /// <
+    // LesserThan,
+    /// ! (unary operator)
+    Not,
+    /// +
+    Plus,
+    /// -
+    Minus,
+    /// *
+    Mult,
+    // /// &&
+    // AndAnd,
+    // /// ||,
+    // OrOr,
+    // /// &
+    // BinaryAnd,
+    // /// |
+    // BinaryOr,
+    /// Empty, nothing
+    Empty,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct UnaryOperation<'a> {
+    pub operator: Operator,
+    pub statement: Statement<'a>,
+}
+
+/// Generic operation, a binary operation contains both
+#[derive(Debug, PartialEq)]
+pub enum Operation<'a> {
+    Unary(UnaryOperation<'a>),
+    Binary(Box<BinaryOperation<'a>>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct BinaryOperation<'a> {
+    pub operator: Operator,
+    pub right: Operation<'a>,
+    pub left: Operation<'a>,
 }

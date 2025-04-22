@@ -31,22 +31,15 @@ fn extension(s: Span) -> IResult<Span, u8> {
     Ok((s, 0))
 }
 
-fn statement(s: Span) -> IResult<Span, Expression> {
+fn statement(s: Span) -> IResult<Span, Statement> {
     // case 1: ';' termination is optional
-    let (s, _) = multispace0(s)?;
-    let (s, pos) = position(s)?;
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
         debug!("function or compound statement found");
         let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
         debug!("extensions: {:?}", exts);
         let (s, _) = opt(tag(";")).parse(s)?;
-        let res = Expression {
-            pos,
-            inner: EExpression::Statement(statement),
-        };
-
-        return Ok((s, res));
+        return Ok((s, statement));
     }
 
     let s = case1.0;
@@ -54,23 +47,28 @@ fn statement(s: Span) -> IResult<Span, Expression> {
     let (s, statement) = alt((
         copy_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
+        operation_statement,
         ref_statement,
         string_statement,
         num_statement,
     ))
     .parse(s)?;
-
     let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
     debug!("extensions: {:?}", exts);
     let (s, _) = opt(tag(";")).parse(s)?;
-
     let (s, _) = multispace0(s)?;
     debug!("return statement {}", s.fragment());
+    Ok((s, statement))
+}
+
+fn expression_statement(s: Span) -> IResult<Span, Expression> {
+    let (s, _) = multispace0(s)?;
+    let (s, pos) = position(s)?;
+    let (s, statement) = statement(s)?;
     let res = Expression {
         pos,
         inner: EExpression::Statement(statement),
     };
-
     Ok((s, res))
 }
 
@@ -267,14 +265,8 @@ fn declaration(s: Span) -> IResult<Span, Expression> {
     let (s, _) = tag("let")(s)?;
     let (s, var) = delimited(multispace1, alpha1, multispace0).parse(s)?;
     let (s, _) = tag("=")(s)?;
-    let (s, expr) = delimited(multispace0, statement, multispace0).parse(s)?;
+    let (s, to_assign) = delimited(multispace0, statement, multispace0).parse(s)?;
     debug!("declaration, fragment: {}", s.fragment());
-
-    let to_assign = if let EExpression::Statement(to_assign) = expr.inner {
-        to_assign
-    } else {
-        unreachable!()
-    };
 
     let assignation = Assignation {
         block_on: block_on.is_some(),
@@ -312,13 +304,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
     let (s, var) = delimited(multispace0, alpha1, multispace0).parse(s)?;
     let (s, _) = tag("=")(s)?;
     debug!("assignation");
-    let (s, expr) = delimited(multispace0, statement, multispace0).parse(s)?;
-
-    let to_assign = if let EExpression::Statement(to_assign) = expr.inner {
-        to_assign
-    } else {
-        unreachable!()
-    };
+    let (s, to_assign) = delimited(multispace0, statement, multispace0).parse(s)?;
 
     let assignation = Assignation {
         block_on: block_on.is_some(),
@@ -350,6 +336,7 @@ fn param_statement(s: Span) -> IResult<Span, Statement> {
         compound_statement,
         copy_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
+        operation_statement,
         ref_statement,
         string_statement,
         num_statement,
@@ -402,9 +389,124 @@ fn test_call_statement() {
     assert!(call_statement(Span::new("await()")).is_err());
 }
 
+/// Primitive unit of an operation which is:
+///    - case1, a statement (wo operation case)
+///    - case2, a statement between parenthesis
+pub fn primitive_operation_statement(s: Span) -> IResult<Span, Statement> {
+    let (s, _) = multispace0(s)?;
+    // case1
+    let case1 = alt((
+        function_statement,
+        compound_statement,
+        copy_statement,
+        call_statement, /* to check before ref, because it's ref + "("... */
+        ref_statement,
+        string_statement,
+        num_statement,
+    ))
+    .parse(s);
+    if let Ok(res) = case1 {
+        return Ok(res);
+    }
+    // case2
+    let (s, _) = multispace0(s)?;
+    let (s, _) = tag("(")(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, statement) = statement(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, _) = tag(")")(s)?;
+    let (s, _) = multispace0(s)?;
+    return Ok((s, statement));
+}
+
+/// Unary operation as 'not X'.
+pub fn unary_operation(s: Span) -> IResult<Span, UnaryOperation> {
+    let (s, not) = opt(tag("!")).parse(s)?;
+    if not.is_some() {
+        let (s, es) = primitive_operation_statement(s)?;
+        Ok((
+            s,
+            UnaryOperation {
+                operator: Operator::Not,
+                statement: es,
+            },
+        ))
+    } else {
+        let (s, es) = primitive_operation_statement(s)?;
+        Ok((
+            s,
+            UnaryOperation {
+                operator: Operator::Empty,
+                statement: es,
+            },
+        ))
+    }
+}
+
+/// Parse a sequence of binary operation "a * b * ...".
+/// Fallback to unary operation if new such '*'.
+pub fn mult_operation(s: Span) -> IResult<Span, Operation> {
+    let (s, _) = multispace0(s)?;
+    let (s, right) = unary_operation(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, is_mult) = opt(tag("*")).parse(s)?;
+    if is_mult.is_none() {
+        return Ok((s, Operation::Unary(right)));
+    }
+    let (s, _) = multispace0(s)?;
+    let (s, left) = mult_operation(s)?;
+    Ok((
+        s,
+        Operation::Binary(Box::new(BinaryOperation {
+            operator: Operator::Mult,
+            right: Operation::Unary(right),
+            left,
+        })),
+    ))
+}
+
+/// Parse a sequence of binary operation "a + b + ..." (+ or -).
+/// Fallback to mult operation if new such '+'.
+pub fn add_operation(s: Span) -> IResult<Span, Operation> {
+    let (s, _) = multispace0(s)?;
+    let (s, right) = mult_operation(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, operator) = opt(alt((tag("-"), tag("+")))).parse(s)?;
+    if operator.is_none() {
+        return Ok((s, right));
+    }
+    let (s, _) = multispace0(s)?;
+    let (s, left) = add_operation(s)?;
+    let operator = if *operator.unwrap().fragment() == "-" {
+        Operator::Minus
+    } else {
+        Operator::Plus
+    };
+    Ok((
+        s,
+        Operation::Binary(Box::new(BinaryOperation {
+            operator,
+            right,
+            left,
+        })),
+    ))
+}
+
+pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
+    let (s, op) = add_operation(s)?;
+    let (s, pos) = position(s)?;
+    Ok((
+        s,
+        Statement {
+            pos,
+            inner: EStatement::Operation(Box::new(op)),
+        },
+    ))
+}
+
 /// Parse a list of expression (at least one)
 pub fn expressions(s: Span) -> IResult<Span, Vec<Expression>> {
-    let ret = many1(alt((declaration, assignation, statement))).parse(s);
+    let ret = many1(alt((declaration, assignation, expression_statement))).parse(s);
     debug!("found one expression: {}", ret.is_ok());
     ret
 }
