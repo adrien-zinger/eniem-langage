@@ -44,11 +44,21 @@ impl std::hash::Hash for Function {
 
 impl Eq for Function {}
 
+#[derive(Default, Debug, Clone)]
+pub enum StdFunction {
+    Atoi,
+    Itoa,
+    Printf,
+    #[default]
+    Nope,
+}
+
 #[derive(Debug, Clone)]
 pub struct Call {
     pub block_on: bool,
     pub params: Vec<Statement>,
     pub name: String,
+    pub std: StdFunction,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +152,7 @@ impl From<scopes::Call> for Call {
             block_on: val.block_on,
             params: val.params.into_iter().map(|s| s.into()).collect(),
             name: format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name),
+            std: StdFunction::default(),
         }
     }
 }
@@ -159,7 +170,17 @@ impl From<scopes::Statement> for Statement {
                     EStatement::Ref(format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
                 }
                 scopes::EStatement::Call(n) => EStatement::Call(n.into()),
-                scopes::EStatement::StdCall(n) => EStatement::StdCall(n.into()),
+                scopes::EStatement::StdCall(n) => {
+                    let stdf = match n.name.name.as_str() {
+                        "atoi" => StdFunction::Atoi,
+                        "itoa" => StdFunction::Itoa,
+                        "printf" => StdFunction::Printf,
+                        &_ => panic!("{} not found in this scope.", n.name.name),
+                    };
+                    let mut call: Call = n.into();
+                    call.std = stdf;
+                    EStatement::StdCall(call)
+                }
                 scopes::EStatement::Skip => unreachable!(),
             },
             refs: val

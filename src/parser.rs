@@ -46,11 +46,11 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     debug!("statement case 2, fragment: {}", s.fragment());
     let (s, statement) = alt((
         copy_statement,
+        string_statement,
+        num_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
         operation_statement,
         ref_statement,
-        string_statement,
-        num_statement,
     ))
     .parse(s)?;
     let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
@@ -335,11 +335,11 @@ fn param_statement(s: Span) -> IResult<Span, Statement> {
         function_statement,
         compound_statement,
         copy_statement,
+        string_statement,
+        num_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
         operation_statement,
         ref_statement,
-        string_statement,
-        num_statement,
     ))
     .parse(s)
 }
@@ -399,10 +399,10 @@ pub fn primitive_operation_statement(s: Span) -> IResult<Span, Statement> {
         function_statement,
         compound_statement,
         copy_statement,
-        call_statement, /* to check before ref, because it's ref + "("... */
-        ref_statement,
         string_statement,
         num_statement,
+        call_statement, /* to check before ref, because it's ref + "("... */
+        ref_statement,
     ))
     .parse(s);
     if let Ok(res) = case1 {
