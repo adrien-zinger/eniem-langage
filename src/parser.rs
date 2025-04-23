@@ -36,8 +36,8 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
         debug!("function or compound statement found");
-        let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
-        debug!("extensions: {:?}", exts);
+        let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
+        debug!("extensions: {:?}", _exts);
         let (s, _) = opt(tag(";")).parse(s)?;
         return Ok((s, statement));
     }
@@ -53,8 +53,8 @@ fn statement(s: Span) -> IResult<Span, Statement> {
         ref_statement,
     ))
     .parse(s)?;
-    let (s, exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
-    debug!("extensions: {:?}", exts);
+    let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
+    debug!("extensions: {:?}", _exts);
     let (s, _) = opt(tag(";")).parse(s)?;
     let (s, _) = multispace0(s)?;
     debug!("return statement {}", s.fragment());
@@ -420,7 +420,7 @@ pub fn primitive_operation_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = multispace0(s)?;
     let (s, _) = tag(")")(s)?;
     let (s, _) = multispace0(s)?;
-    return Ok((s, statement));
+    Ok((s, statement))
 }
 
 /// Unary operation as 'not X'.
@@ -524,9 +524,7 @@ pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
 
 /// Parse a list of expression (at least one)
 pub fn expressions(s: Span) -> IResult<Span, Vec<Expression>> {
-    let ret = many1(alt((declaration, assignation, expression_statement))).parse(s);
-    debug!("found one expression: {}", ret.is_ok());
-    ret
+    many1(alt((declaration, assignation, expression_statement))).parse(s)
 }
 
 #[test]

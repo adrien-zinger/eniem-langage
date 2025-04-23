@@ -717,7 +717,7 @@ impl Interpreter {
                             self.complete_job(job);
                         }
                         EStatement::Num(val) => {
-							if latest {
+                            if latest {
                                 let boxed = if self.is_abstract {
                                     Box::new(memory::abstract_number())
                                 } else {
@@ -814,8 +814,8 @@ impl Interpreter {
                 });
                 self.complete_job(job);
             }
-            EJob::Delete(decls) => {
-                debug!("delete {:?} requested", decls);
+            EJob::Delete(_decls) => {
+                debug!("delete {:?} requested", _decls);
             }
             EJob::Builtin(call) => {
                 let params: Vec<Arc<Variable>> = call
@@ -888,6 +888,7 @@ impl Interpreter {
                     let res = {
                         let fc = &mut fc.lock().unwrap();
                         debug!("fc locked");
+                        #[cfg(feature = "debug_interpreter")]
                         let id = fc.id.clone();
                         for (name, ty) in fc.inputs.iter_mut() {
                             if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
@@ -933,8 +934,6 @@ impl Interpreter {
                         debug!("execute function expression: {:?}", exprs);
                         self.expressions(exprs, job.scope);
                     }
-                } else {
-                    debug!("unmanaged job detected")
                 }
             }
         }

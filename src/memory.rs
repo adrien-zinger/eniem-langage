@@ -110,7 +110,7 @@ impl Memory {
                 return varbox.cloned();
             }
         }
-        return None;
+        None
     }
 
     pub fn write(&self, key: String, value: Arc<Variable>) {

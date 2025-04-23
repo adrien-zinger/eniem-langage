@@ -240,6 +240,7 @@ impl Scopes {
         let mut inner = vec![];
         let mut refs = vec![];
         let mut local_decls = vec![];
+        #[cfg(feature = "debug_scopes")]
         let len = input.inner.len();
         let mut scope_pos = 0;
         loop {
