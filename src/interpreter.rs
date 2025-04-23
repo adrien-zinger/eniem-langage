@@ -189,6 +189,7 @@ impl Interpreter {
     /// as the exec function, assignation or call_statement. Just scheduling
     /// jobs.
     fn expressions(&self, exprs: &[Expression], scope: Arc<Scope>) {
+        debug!("get {} expressions", exprs.len());
         for (index, expr) in exprs.iter().enumerate() {
             let blocking;
             let mut job = match &expr.inner {
@@ -221,8 +222,11 @@ impl Interpreter {
                 }
             };
 
-            if blocking {
-                job.next = Some(EJob::Expressions(exprs[index..].to_vec()));
+            // todo test in another pass if 'await' is on the last expression
+            // and remove the anotation. (with a compilation warning to the user)
+            if blocking && index < exprs.len() - 1 {
+                debug!("postpawn blocks\n{:#?}", exprs[index + 1..].to_vec());
+                job.next = Some(EJob::Expressions(exprs[index + 1..].to_vec()));
                 self.schedule(job);
                 break;
             } else {
@@ -259,7 +263,7 @@ impl Interpreter {
                 let scope = Arc::new(Scope {
                     id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
-                    memory: memory::push(job.scope.memory.clone()),
+                    memory: job.scope.memory.clone(),
                     value,
                     job: Some(job),
                 });
@@ -333,6 +337,7 @@ impl Interpreter {
                 debug!("try to assign {} from {c}", assign.var);
                 let r = job.scope.memory.find(c, &job);
                 if r.is_none() {
+                    debug!("retry to assign {} later", assign.var);
                     self.schedule_later(job);
                     return;
                 }
@@ -563,7 +568,7 @@ impl Interpreter {
                 id: scope_id,
                 len: AtomicU64::new(scope_len as u64),
                 value,
-                memory: memory::push(job.scope.memory.clone()),
+                memory: job.scope.memory.clone(),
                 job: Some(job),
             })
         } else {
@@ -583,7 +588,7 @@ impl Interpreter {
                 }
             };
 
-            let memory = memory::push(job.scope.memory.clone());
+            let memory = job.scope.memory.clone();
 
             let compound = Job {
                 inner: EJob::Empty((value.clone(), decls)),
@@ -682,7 +687,7 @@ impl Interpreter {
                                 .map(|id| format!("{}::{}", id, new_scope_id))
                                 .collect();
 
-                            let memory = memory::push(job.scope.memory.clone());
+                            let memory = job.scope.memory.clone();
 
                             let compound = Job {
                                 inner: EJob::Empty((value.clone(), decls)),

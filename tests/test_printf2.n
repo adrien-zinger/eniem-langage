@@ -1,0 +1,7 @@
+let a = (){ "world" }
+await {
+	printf!("hello %s\n", a())
+	printf!("hello %s", "world\n")
+}
+printf!("hello world %d times\n", 3)
+printf!("this is just a number %d\n", 12)

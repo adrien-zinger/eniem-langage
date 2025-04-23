@@ -19,10 +19,13 @@ pub enum AbstractVariable {
     Uninit,
 }
 
+/// Variable tag and a reference to that variable.
+type Inputs = Vec<(String, Arc<Variable>)>;
+
 #[derive(Debug)]
 pub enum Variable {
     /// Function tree and a list of captured variables.
-    Function(Mutex<(Function, Vec<(String, Arc<Variable>)>)>),
+    Function(Mutex<(Function, Inputs)>),
     /// A mutable String
     String(Mutex<String>),
     /// Nothing, also default variable. Usually it's
@@ -71,6 +74,23 @@ pub struct Memory {
     pub map: RwLock<HashMap<String, Arc<Variable>>>,
 }
 
+/*
+Issue 'MemoryPush':
+The push is removed because it didn't take into account
+that the previous scope wouldn't have already initialized
+things that are refered in sub scope.
+
+When we create a new scope, instead of clone the memory
+map, we need to know "what is used inside this new scope
+which isn't declared inside?". In other words, what is
+the externals references in that new scope.
+
+
+>   Before pushing, we could create a new empty variable
+>   with the correct id of what it would be referenced.
+>   We can also clone only what would be usefull for the
+>   scope.
+
 pub fn push(mem: Arc<Memory>) -> Arc<Memory> {
     if let Ok(m) = mem.map.read() {
         Arc::new(Memory {
@@ -80,6 +100,7 @@ pub fn push(mem: Arc<Memory>) -> Arc<Memory> {
         panic!("failed to access memory")
     }
 }
+*/
 
 impl Memory {
     /// Look for a variable in memory. The variable is forced to be in
