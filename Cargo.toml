@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+libc = "0.2.172"
 nom = "8.0.0"
 nom_locate = "5.0.0"
 
 [features]
-default = ["debug_main", "debug_interpreter", "debug_parser", "debug_scopes"]
+default = []
 debug_interpreter = []
 debug_parser = []
 debug_main = []

@@ -2,7 +2,7 @@ use crate::exec_tree::*;
 use crate::interpreter::*;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::{AtomicI32, AtomicPtr};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Type detected by the interpreter during abstract execution.
@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex, RwLock};
 pub enum AbstractVariable {
     /// String type.
     String,
+    /// I32 type.
+    Number,
     /// The type is undefined or is pointless for the type checking.
     /// A type can be replaced by "void" (nothing) when the variable
     /// is never used.
@@ -28,6 +30,8 @@ pub enum Variable {
     Empty,
     /// Empty string type to be used in abstract execution
     Abstract(AbstractVariable),
+    /// Signed number on 32 bit is default Number type.
+    Number(AtomicI32),
 }
 
 impl PartialEq for Variable {
@@ -99,7 +103,6 @@ impl Memory {
         }
     }
 
-    /*
     pub fn get(&self, key: &str) -> Option<Arc<Variable>> {
         if let Ok(vars) = self.map.read() {
             let varbox = vars.get(key);
@@ -109,7 +112,6 @@ impl Memory {
         }
         return None;
     }
-    */
 
     pub fn write(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
@@ -131,7 +133,6 @@ impl Memory {
                     }
                 }
                 Variable::Function(val) => {
-                    println!("Abstract function evaluation registred");
                     if let Some(v) = mem.get(&key) {
                         let val = &mut val.lock().unwrap().0;
                         if let Variable::Function(v) = &**v {
@@ -164,8 +165,16 @@ pub fn string(val: &str) -> Arc<Variable> {
     Arc::new(Variable::String(Mutex::new(val.to_string())))
 }
 
+pub fn number(val: i32) -> Arc<Variable> {
+    Arc::new(Variable::Number(AtomicI32::new(val)))
+}
+
 pub fn abstract_string() -> Arc<Variable> {
     Arc::new(Variable::Abstract(AbstractVariable::String))
+}
+
+pub fn abstract_number() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::Number))
 }
 
 pub fn abstract_uninit() -> Arc<Variable> {

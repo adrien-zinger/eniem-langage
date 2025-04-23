@@ -1,4 +1,5 @@
 use crate::exec_tree::*;
+use crate::libc::*;
 use crate::memory::{self, *};
 
 use std::collections::HashMap;
@@ -26,8 +27,10 @@ struct FunctionCall {
 #[derive(Clone)]
 enum EJob {
     Expression(Expression),
+    /// Builtin function as printf, itoa, i32_add...
+    Builtin(Call),
     /// Case 1: One job is blocking and next job is a list of
-    ///         expressions
+    ///         expressions. Not managed by the exec function.
     /// Case 2: Abstract interpretation need to wait for input
     ///         before running the function compound statement.
     Expressions(Vec<Expression>),
@@ -229,6 +232,7 @@ impl Interpreter {
     }
 
     fn assignation(&self, assign: &Assignation, job: Job) {
+        debug!("enter assignation, job scope id {}", job.scope.id);
         match &assign.to_assign.inner {
             EStatement::Compound(input) => {
                 debug!("assignation create a scope");
@@ -263,6 +267,7 @@ impl Interpreter {
             }
             EStatement::Str(val) => {
                 let key = format!("{}::{}", assign.var, job.scope.id);
+                debug!("assign a string to {key}");
                 if self.is_abstract {
                     let val = memory::abstract_string();
                     job.scope.memory.abstr_write(key, val);
@@ -311,7 +316,8 @@ impl Interpreter {
                 self.call_statement(c, job, false, Some(id))
             }
             EStatement::StdCall(call) => {
-                todo!("call std {:?} and assign", call)
+                let id = format!("{}::{}", assign.var, job.scope.id);
+                self.std_call_statement(call, job, false, Some(id))
             }
             EStatement::Copy(_c) => todo!(),
             EStatement::Ref(c) => {
@@ -344,6 +350,113 @@ impl Interpreter {
         }
     }
 
+    /// Execute a standard call statement like a libc call (printf, itoa...) or a
+    /// builtin (i32_add, u32_mult...).
+    ///  call: reference to the call statement.
+    ///  job: copy of the full job containing the statement.
+    ///  latest: is it the latest expression of the current scope.
+    ///  write: Some if the result has to be assigned to something, otherwise None.
+    fn std_call_statement(&self, call: &Call, job: Job, latest: bool, write: Option<String>) {
+        // Identifier of 2 scopes, the one which contains the builtin call and the
+        // one which initialise the arguments.
+        let scope_id = self.new_id();
+
+        // Compute a new scope, if the scope result is written in a variable,
+        // schedule a Write job as parent with a new box variable. Otherwise,
+        // make return value percolate to the upper scope copying the upper
+        // scope `value` reference.
+        let scope = if let Some(write) = write {
+            let value = BoxVariable::default();
+            let job = Job {
+                inner: EJob::Write((write, value.clone(), vec![])),
+                scope: job.scope,
+                next: job.next,
+                fc: None,
+            };
+            Arc::new(Scope {
+                id: scope_id,
+                len: AtomicU64::new(1),
+                value,
+                memory: job.scope.memory.clone(),
+                job: Some(job),
+            })
+        } else {
+            // Percolate only if the call is the latest expression
+            // in the upper scope.
+            let value = if latest {
+                debug!("use top scope value");
+                job.scope.value.clone()
+            } else {
+                debug!("create default scope value");
+                if self.is_abstract {
+                    debug!("create default scope value (abstract setup)");
+                    let boxed = Box::new(memory::abstract_uninit());
+                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                } else {
+                    Default::default()
+                }
+            };
+
+            let memory = job.scope.memory.clone();
+
+            let compound = Job {
+                inner: EJob::Empty((value.clone(), vec![])),
+                next: job.next,
+                scope: job.scope,
+                fc: None,
+            };
+
+            Arc::new(Scope {
+                id: scope_id,
+                len: AtomicU64::new(1),
+                value,
+                memory,
+                job: Some(compound),
+            })
+        };
+
+        // Create again a new scope containing parameters assignation. The parent
+        // Job is a call to the builtin, triggered after all assignations.
+
+        let memory = scope.memory.clone();
+
+        let builtin_job = Job {
+            inner: EJob::Builtin(call.clone()),
+            next: None,
+            scope,
+            fc: None,
+        };
+
+        let param_scope = Arc::new(Scope {
+            id: scope_id, // no need to add a new scope layer.
+            len: AtomicU64::new(call.params.len() as u64),
+            value: Default::default(),
+            memory, // same memory as upper scope. (no declarations expecteds)
+            job: Some(builtin_job),
+        });
+
+        for (index, param) in call.params.iter().cloned().enumerate() {
+            // Create a new assignation tree.
+            let inner = EExpression::Assignation(Assignation {
+                block_on: false,
+                // variable doesn't have name.
+                // simply index + unique scope id.
+                var: format!("{index}"),
+                to_assign: param,
+            });
+
+            self.schedule(Job {
+                inner: EJob::Expression(Expression {
+                    latest: false,
+                    inner,
+                }),
+                next: None,
+                scope: param_scope.clone(),
+                fc: None,
+            });
+        }
+    }
+
     /// Execute a call statement.
     ///  call: reference to the call statement.
     ///  job: copy of the full job containing the statement.
@@ -354,7 +467,7 @@ impl Interpreter {
         let function = if let Some(function) = job.scope.memory.find(&call.name, &job) {
             function
         } else {
-            debug!("function not found");
+            debug!("function not found {}", call.name);
             self.schedule_later(job);
             return;
         };
@@ -602,7 +715,8 @@ impl Interpreter {
                             self.call_statement(call, job.clone(), latest, None)
                         }
                         EStatement::StdCall(call) => {
-                            todo!("call std {:?}", call)
+                            debug!("Execute std call statement");
+                            self.std_call_statement(call, job.clone(), latest, None)
                         }
                         EStatement::Copy(_v) => todo!(),
                         EStatement::Ref(v) => {
@@ -680,6 +794,39 @@ impl Interpreter {
             }
             EJob::Delete(decls) => {
                 debug!("delete {:?} requested", decls);
+            }
+            EJob::Builtin(call) => {
+                let params: Vec<Arc<Variable>> = call
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| {
+                        job.scope
+                            .memory
+                            .get(&format!("{}::{}", index, job.scope.id))
+                            .unwrap()
+                    })
+                    .collect();
+                let res = if self.is_abstract {
+                    // todo check parameters too.
+                    match call.std {
+                        StdFunction::Atoi => todo!("atoi not implemented"),
+                        StdFunction::Itoa => todo!("itoa not implemented"),
+                        StdFunction::Printf => Box::new(memory::abstract_number()),
+                        _ => todo!(),
+                    }
+                } else {
+                    debug!("call printf");
+                    match call.std {
+                        StdFunction::Atoi => todo!("atoi not implemented"),
+                        StdFunction::Itoa => todo!("itoa not implemented"),
+                        StdFunction::Printf => Box::new(memory::number(builtin_printf(&params))),
+                        _ => todo!(),
+                    }
+                };
+                debug!("set scope value (str expr)");
+                job.scope.value.store(Box::into_raw(res), Ordering::SeqCst);
+                self.complete_job(job);
             }
             EJob::Empty((value, decls)) => {
                 if self.is_abstract {
@@ -837,6 +984,7 @@ impl Interpreter {
                                     inputs: inputs.clone(),
                                     output: memory::abstract_uninit(),
                                 }));
+                                // Create Job that would write the return type eventually.
                                 let res_job = Job {
                                     inner: EJob::Empty((value.clone(), vec![])),
                                     next: None,
@@ -850,6 +998,7 @@ impl Interpreter {
                                     value,
                                     memory,
                                 });
+                                // Create the Job containing the function's expressions.
                                 let job = Job {
                                     inner: EJob::Expressions(other.inner.inner.clone()),
                                     fc: Some(fc.clone()),
