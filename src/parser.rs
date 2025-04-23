@@ -143,9 +143,13 @@ fn quoted_string(s: Span) -> IResult<Span, String> {
         if *d.fragment() == "\"" {
             return Ok((s, res));
         }
-        res.push('\\');
         let (s2, c) = anychar(s)?;
-        res.push(c);
+        match c {
+            'n' => res.push('\n'),
+            'r' => res.push('\r'),
+            '\\' => res.push('\\'),
+            _ => todo!("add a ligne here"),
+        }
         (s, (r, d)) = many_till(anychar, alt((tag("\\"), tag("\"")))).parse(s2)?;
     }
 }
@@ -495,6 +499,20 @@ pub fn add_operation(s: Span) -> IResult<Span, Operation> {
 pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
     let (s, op) = add_operation(s)?;
     let (s, pos) = position(s)?;
+    if let Operation::Unary(op) = &op {
+        if let Operator::Empty = op.operator {
+            return Ok((
+                s,
+                Statement {
+                    pos,
+                    inner: match &op.statement.inner {
+                        EStatement::Ref(r) => EStatement::Ref(r.clone()),
+                        _ => todo!(),
+                    },
+                },
+            ));
+        }
+    }
     Ok((
         s,
         Statement {
