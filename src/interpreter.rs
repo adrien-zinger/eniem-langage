@@ -277,8 +277,17 @@ impl Interpreter {
                 }
                 self.complete_job(job);
             }
-            EStatement::Num(_) => {
-                todo!()
+            EStatement::Num(val) => {
+                let key = format!("{}::{}", assign.var, job.scope.id);
+                debug!("assign a number to {key}");
+                if self.is_abstract {
+                    let val = memory::abstract_number();
+                    job.scope.memory.abstr_write(key, val);
+                } else {
+                    let val = memory::number(*val);
+                    job.scope.memory.write(key, val);
+                }
+                self.complete_job(job);
             }
             EStatement::Function(f) => {
                 debug!("Declare a function");
@@ -707,8 +716,21 @@ impl Interpreter {
                             }
                             self.complete_job(job);
                         }
-                        EStatement::Num(_) => {
-                            todo!()
+                        EStatement::Num(val) => {
+							if latest {
+                                let boxed = if self.is_abstract {
+                                    Box::new(memory::abstract_number())
+                                } else {
+                                    Box::new(memory::number(*val))
+                                };
+                                debug!("set scope value (str expr)");
+                                job.scope
+                                    .value
+                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                            } else {
+                                debug!("dead number expression spoted");
+                            }
+                            self.complete_job(job);
                         }
                         EStatement::Call(call) => {
                             debug!("Execute call statement");
