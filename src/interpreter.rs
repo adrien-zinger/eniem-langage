@@ -2,7 +2,7 @@ use crate::exec_tree::*;
 use crate::libc::*;
 use crate::memory::{self, *};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -100,7 +100,7 @@ impl FunctionCallsDictionary {
 }
 
 pub struct Interpreter {
-    jobs: Arc<Mutex<Vec<Job>>>,
+    jobs: Arc<Mutex<VecDeque<Job>>>,
     /// Counter used to create unique ID.
     counter: AtomicU64,
     /// True if the execution is abstract.
@@ -157,7 +157,7 @@ impl Interpreter {
 
         loop {
             let job = if let Ok(jobs) = &mut self.jobs.lock() {
-                if let Some(job) = jobs.pop() {
+                if let Some(job) = jobs.pop_back() {
                     job.clone()
                 } else {
                     break;
@@ -175,13 +175,7 @@ impl Interpreter {
 
     fn schedule(&self, job: Job) {
         if let Ok(jobs) = &mut self.jobs.lock() {
-            jobs.push(job);
-        }
-    }
-
-    fn schedule_later(&self, job: Job) {
-        if let Ok(jobs) = &mut self.jobs.lock() {
-            jobs.insert(0, job);
+            jobs.push_front(job);
         }
     }
 
@@ -242,6 +236,7 @@ impl Interpreter {
                 debug!("assignation create a scope");
                 let value = BoxVariable::default();
                 debug!("scope decls: {:?}", input.decls);
+                debug!("scope refs: {:?}", input.refs);
                 let new_scope_id = self.new_id();
                 let decls = input
                     .decls
@@ -300,7 +295,7 @@ impl Interpreter {
                     if let Some(var) = job.scope.memory.find(c, &job) {
                         captures.push((c.clone(), var));
                     } else {
-                        self.schedule_later(job);
+                        self.schedule(job);
                         return;
                     }
                 }
@@ -338,7 +333,7 @@ impl Interpreter {
                 let r = job.scope.memory.find(c, &job);
                 if r.is_none() {
                     debug!("retry to assign {} later", assign.var);
-                    self.schedule_later(job);
+                    self.schedule(job);
                     return;
                 }
                 let val = r.unwrap();
@@ -482,7 +477,7 @@ impl Interpreter {
             function
         } else {
             debug!("function not found {}", call.name);
-            self.schedule_later(job);
+            self.schedule(job);
             return;
         };
 
@@ -652,7 +647,7 @@ impl Interpreter {
         // be able to return the output already processed. If it's considered
         // as not resolved, we process the inner expression.
         if self.is_abstract {
-            self.schedule_later(Job {
+            self.schedule(Job {
                 inner: EJob::Expressions(function.inner.inner),
                 scope,
                 next: None,
@@ -754,7 +749,7 @@ impl Interpreter {
                                         .value
                                         .store(Box::into_raw(boxed), Ordering::SeqCst);
                                 } else {
-                                    self.schedule_later(job);
+                                    self.schedule(job);
                                     return;
                                 }
                             }
@@ -767,7 +762,7 @@ impl Interpreter {
                                     if let Some(var) = job.scope.memory.find(c, &job) {
                                         captures.push((c.clone(), var));
                                     } else {
-                                        self.schedule_later(job);
+                                        self.schedule(job);
                                         return;
                                     }
                                 }
@@ -916,7 +911,7 @@ impl Interpreter {
                         // Abstract execution require function call input to be
                         // ready before being processed.
                         debug!("reschedule call");
-                        self.schedule_later(job);
+                        self.schedule(job);
                         return;
                     }
 
@@ -1037,7 +1032,7 @@ impl Interpreter {
                                 // Execute jobs until the FIFO is empty.
                                 loop {
                                     let job = if let Ok(jobs) = &mut self.jobs.lock() {
-                                        if let Some(job) = jobs.pop() {
+                                        if let Some(job) = jobs.pop_back() {
                                             job.clone()
                                         } else {
                                             break;
