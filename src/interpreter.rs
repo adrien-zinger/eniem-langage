@@ -99,10 +99,11 @@ impl FunctionCallsDictionary {
     }
 }
 
+#[derive(Clone)]
 pub struct Interpreter {
     jobs: Arc<Mutex<VecDeque<Job>>>,
     /// Counter used to create unique ID.
-    counter: AtomicU64,
+    counter: Arc<AtomicU64>,
     /// True if the execution is abstract.
     is_abstract: bool,
     /// Dictionary of all observed functions during abstract execution.
@@ -155,21 +156,49 @@ impl Interpreter {
             }),
         );
 
-        loop {
-            let job = if let Ok(jobs) = &mut self.jobs.lock() {
-                if let Some(job) = jobs.pop_back() {
-                    job.clone()
-                } else {
-                    break;
-                }
-            } else {
-                continue;
-            };
-            self.exec(job);
-        }
-
         if self.is_abstract {
+            loop {
+                let job = if let Ok(jobs) = &mut self.jobs.lock() {
+                    if let Some(job) = jobs.pop_back() {
+                        job.clone()
+                    } else {
+                        break;
+                    }
+                } else {
+                    continue;
+                };
+                self.exec(job);
+            }
+
             self.check_functions_types();
+        } else {
+            for _ in [0..=2] {
+                let i1 = self.clone();
+                std::thread::spawn(move || loop {
+                    let job = if let Ok(jobs) = &mut i1.jobs.lock() {
+                        if let Some(job) = jobs.pop_back() {
+                            job.clone()
+                        } else {
+                            break;
+                        }
+                    } else {
+                        continue;
+                    };
+                    i1.exec(job);
+                });
+            }
+            loop {
+                let job = if let Ok(jobs) = &mut self.jobs.lock() {
+                    if let Some(job) = jobs.pop_back() {
+                        job.clone()
+                    } else {
+                        break;
+                    }
+                } else {
+                    continue;
+                };
+                self.exec(job);
+            }
         }
     }
 

@@ -6,7 +6,6 @@ mod parser;
 mod scopes;
 mod tree;
 
-
 use interpreter::*;
 use parser::*;
 use tree::*;
@@ -30,12 +29,12 @@ fn main() {
         "\n\n --------- ast ------\n\n {:#?} \n\n ----------------------",
         ast
     );
-	/* dum ast
-	use std::io::Write;
+    /* dum ast
+    use std::io::Write;
     std::fs::File::create("ast")
         .unwrap()
         .write_all(format!("{:#?}", ast).as_bytes()).unwrap();
-	*/
+    */
     let mut scopes = scopes::Scopes { errors: vec![] };
     let ast = scopes.check(ast);
     debug!("scopes errors: {:?}", scopes.errors);
