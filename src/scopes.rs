@@ -1,5 +1,7 @@
 use crate::tree;
 
+use std::collections::HashSet;
+
 macro_rules! debug {
     ($($rest:tt)*) => {
         #[cfg(feature = "debug_scopes")]
@@ -7,7 +9,7 @@ macro_rules! debug {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct VarInfo {
     pub name: String,
     pub line: u32,
@@ -15,34 +17,39 @@ pub struct VarInfo {
     pub scope: String,
 }
 
+#[derive(Debug)]
 pub struct Statement {
     pub inner: EStatement,
     /// external refs
-    pub refs: Vec<VarInfo>,
+    pub refs: HashSet<VarInfo>,
     pub line: u32,
     pub column: usize,
 }
 
+#[derive(Debug)]
 pub struct Function {
     pub id: String,
     pub args: Vec<VarInfo>,
     pub inner: Compound,
 }
 
+#[derive(Debug)]
 pub struct Call {
     pub block_on: bool,
     pub params: Vec<Statement>,
     pub name: VarInfo,
 }
 
+#[derive(Debug)]
 pub struct Compound {
     pub block_on: bool,
     pub inner: Vec<Expression>,
     pub decls: Vec<VarInfo>,
     /// external refs
-    pub refs: Vec<VarInfo>,
+    pub refs: HashSet<VarInfo>,
 }
 
+#[derive(Debug)]
 pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
@@ -55,10 +62,12 @@ pub enum EStatement {
     Skip,
 }
 
+#[derive(Debug)]
 pub struct Expression {
     pub inner: EExpression,
 }
 
+#[derive(Debug)]
 pub struct Assignation {
     pub block_on: bool,
     pub var: String,
@@ -66,6 +75,7 @@ pub struct Assignation {
     pub to_assign: Statement,
 }
 
+#[derive(Debug)]
 pub enum EExpression {
     Statement(Statement),
     Declaration(Assignation),
@@ -82,6 +92,11 @@ fn lookup(var: &str, decls: &[VarInfo]) -> Option<VarInfo> {
     None
 }
 
+fn extend_refs(refs: &mut HashSet<VarInfo>, other: &HashSet<VarInfo>, current_scope: &str) {
+    refs.extend(other.iter().filter(|v| v.scope != current_scope).cloned());
+}
+
+#[derive(Debug)]
 pub struct Scopes {
     pub errors: Vec<String>,
 }
@@ -113,7 +128,7 @@ impl Scopes {
     ) -> Statement {
         let line = input.pos.location_line();
         let column = input.pos.get_column();
-        let mut refs = vec![];
+        let mut refs = HashSet::new();
         let inner = match input.inner {
             tree::EStatement::Function(f) => {
                 let new_scope = format!("{}:block_{}_{}", scope, line, column);
@@ -131,7 +146,7 @@ impl Scopes {
                 let mut decls = decls.clone();
                 decls.append(&mut args.clone());
                 let inner = self.compound(f.inner, new_scope.clone(), decls);
-                refs.append(&mut inner.refs.clone());
+                extend_refs(&mut refs, &inner.refs, &scope);
                 EStatement::Function(Function {
                     id: new_scope,
                     inner,
@@ -143,24 +158,26 @@ impl Scopes {
             tree::EStatement::Operation(_) => todo!(),
             tree::EStatement::Compound(c) => {
                 let new_scope = format!("{}:block_{}_{}", scope, line, column);
-                EStatement::Compound(self.compound(c, new_scope, decls.clone()))
+                let compound = self.compound(c, new_scope.clone(), decls.clone());
+                extend_refs(&mut refs, &compound.refs, &new_scope);
+                debug!("compound refs merged: {:?}", refs);
+                EStatement::Compound(compound)
             }
             tree::EStatement::Copy(v) => {
                 if let Some(info) = lookup(&v, &decls) {
                     if info.scope != scope {
-                        refs.push(info);
+                        refs.insert(info);
                     }
                 } else {
                     self.errors
                         .push(format!("{} not declared in this scope.", v));
                 }
-
                 EStatement::Copy(v)
             }
             tree::EStatement::Ref(v) => {
                 if let Some(info) = lookup(&v, &decls) {
                     if info.scope != scope {
-                        refs.push(info.clone());
+                        refs.insert(info.clone());
                     }
                     EStatement::Ref(info)
                 } else {
@@ -172,7 +189,7 @@ impl Scopes {
             tree::EStatement::Call(c) => {
                 if let Some(info) = lookup(&c.name, &decls) {
                     if info.scope != scope {
-                        refs.push(info);
+                        refs.insert(info);
                     }
                 } else {
                     self.errors
@@ -181,12 +198,12 @@ impl Scopes {
                 let mut params = vec![];
                 for param in c.params {
                     let param = self.statement(param, scope.clone(), decls.clone());
-                    refs.append(&mut param.refs.clone());
+                    extend_refs(&mut refs, &param.refs, &scope);
                     params.push(param);
                 }
                 if let Some(info) = lookup(&c.name, &decls) {
                     if info.scope != scope {
-                        refs.push(info.clone());
+                        refs.insert(info.clone());
                     }
                     EStatement::Call(Call {
                         block_on: c.block_on,
@@ -207,7 +224,7 @@ impl Scopes {
                 let mut params = vec![];
                 for param in c.params {
                     let param = self.statement(param, scope.clone(), decls.clone());
-                    refs.append(&mut param.refs.clone());
+                    extend_refs(&mut refs, &param.refs, &scope);
                     params.push(param);
                 }
                 EStatement::StdCall(Call {
@@ -238,7 +255,7 @@ impl Scopes {
     ) -> Compound {
         debug!("Check {scope} variable's scope");
         let mut inner = vec![];
-        let mut refs = vec![];
+        let mut refs = HashSet::new();
         let mut local_decls = vec![];
         #[cfg(feature = "debug_scopes")]
         let len = input.inner.len();
@@ -276,15 +293,14 @@ impl Scopes {
                             column: expr.pos.get_column(),
                         };
                         let a = self.assignation(a, info, scope.clone(), decls.clone());
-                        let mut arefs = a.to_assign.refs.clone();
-                        refs.append(&mut arefs);
+                        extend_refs(&mut refs, &a.to_assign.refs, &scope);
                         EExpression::Declaration(a)
                     }
                     tree::EExpression::Assignation(a) => {
                         if let Some(info) = lookup(&a.var, &decls) {
                             debug!("detect assign to {}", a.var);
                             let a = self.assignation(a, info, scope.clone(), decls.clone());
-                            refs.append(&mut a.to_assign.refs.clone());
+                            extend_refs(&mut refs, &a.to_assign.refs, &scope);
                             EExpression::Assignation(a)
                         } else {
                             self.errors.push("variable not found".to_string());
@@ -293,7 +309,7 @@ impl Scopes {
                     }
                     tree::EExpression::Statement(s) => {
                         let s = self.statement(s, scope.clone(), decls.clone());
-                        refs.append(&mut s.refs.clone());
+                        extend_refs(&mut refs, &s.refs, &scope);
                         EExpression::Statement(s)
                     }
                 })

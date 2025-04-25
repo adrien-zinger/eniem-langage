@@ -265,7 +265,7 @@ impl Interpreter {
                 debug!("assignation create a scope");
                 let value = BoxVariable::default();
                 debug!("scope decls: {:?}", input.decls);
-                debug!("scope refs: {:?}", input.refs);
+                debug!("scope refs: {:?}", assign.to_assign.refs);
                 let new_scope_id = self.new_id();
                 let decls = input
                     .decls
@@ -287,7 +287,7 @@ impl Interpreter {
                 let scope = Arc::new(Scope {
                     id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
-                    memory: job.scope.memory.clone(),
+                    memory: job.scope.memory.new(&assign.to_assign.refs, job.scope.id),
                     value,
                     job: Some(job),
                 });
@@ -319,6 +319,7 @@ impl Interpreter {
             }
             EStatement::Function(f) => {
                 debug!("Declare a function");
+                debug!("function refs: {:?}", assign.to_assign.refs);
                 let mut captures = vec![];
                 for c in &f.captures {
                     if let Some(var) = job.scope.memory.find(c, &job) {
@@ -693,7 +694,7 @@ impl Interpreter {
             EJob::Expression(expr) => {
                 let latest = expr.latest;
                 match &expr.inner {
-                    EExpression::Statement(stat) => match &stat.inner {
+                    EExpression::Statement(statement) => match &statement.inner {
                         EStatement::Compound(input) => {
                             debug!("create a new scope from a scope");
                             let value = if latest {
@@ -711,7 +712,8 @@ impl Interpreter {
                                 .map(|id| format!("{}::{}", id, new_scope_id))
                                 .collect();
 
-                            let memory = job.scope.memory.clone();
+                            debug!("scope refs: {:?}", statement.refs);
+                            let memory = job.scope.memory.new(&statement.refs, job.scope.id);
 
                             let compound = Job {
                                 inner: EJob::Empty((value.clone(), decls)),
@@ -785,6 +787,7 @@ impl Interpreter {
                             self.complete_job(job);
                         }
                         EStatement::Function(v) => {
+                            debug!("function refs: {:?}", statement.refs);
                             if latest {
                                 let mut captures = vec![];
                                 for c in &v.captures {

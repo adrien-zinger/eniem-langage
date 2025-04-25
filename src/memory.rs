@@ -1,9 +1,16 @@
 use crate::exec_tree::*;
 use crate::interpreter::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI32, AtomicPtr};
 use std::sync::{Arc, Mutex, RwLock};
+
+macro_rules! debug {
+    ($($rest:tt)*) => {
+        #[cfg(feature = "debug_memory")]
+        std::println!($($rest)*)
+    }
+}
 
 /// Type detected by the interpreter during abstract execution.
 #[derive(PartialEq, Eq, Debug, Hash, Clone, Default)]
@@ -100,9 +107,32 @@ pub fn push(mem: Arc<Memory>) -> Arc<Memory> {
         panic!("failed to access memory")
     }
 }
+
+>   May be partially resolved with the introduction of
+>   the new function. But we need to study where we could
+>   replace memory.clone by memory.new. There is also a
+>   possible remaining issue with the `find` that can return an
+>   empty variable.
 */
 
 impl Memory {
+    pub fn new(&self, refs: &HashSet<String>, scope: u64) -> Arc<Memory> {
+        if refs.is_empty() {
+            return Default::default();
+        }
+        if let Ok(m) = &mut self.map.write() {
+            let mut map = HashMap::<String, Arc<Variable>>::new();
+            for key in refs.iter().map(|k| format!("{}::{}", k, scope)) {
+                debug!("forward {} in new memory", key);
+                let varbox = m.entry(key.clone()).or_default();
+                map.insert(key, varbox.clone());
+            }
+            Arc::new(Memory { map: map.into() })
+        } else {
+            panic!("failed to access memory")
+        }
+    }
+
     /// Look for a variable in memory. The variable is forced to be in
     /// the current scope job or in a upper scope. If there is no variable
     /// found, it means that the variable is still not initialized.
@@ -110,6 +140,7 @@ impl Memory {
         let mut scope = &job.scope;
         loop {
             let key = format!("{}::{}", var, scope.id);
+            debug!("look for {}", key);
             if let Ok(vars) = self.map.read() {
                 let varbox = vars.get(&key);
                 if varbox.is_some() {

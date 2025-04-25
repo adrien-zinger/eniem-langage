@@ -1,0 +1,6 @@
+let a = {
+	let b = "hello world\n"
+	(){ b }
+}
+
+printf!("%s", a())

@@ -1,0 +1,2 @@
+await let a = printf!("hello world\n");
+printf!("2) %d characters printed\n", printf!("1) %d characters printed\n", a));

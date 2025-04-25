@@ -1,10 +1,12 @@
 use crate::scopes;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct Statement {
     pub inner: EStatement,
-    pub refs: Vec<String>,
+    /// external references that we can find in that statement.
+    pub refs: HashSet<String>,
 }
 
 impl Statement {

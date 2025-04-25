@@ -37,6 +37,10 @@ fn main() {
     */
     let mut scopes = scopes::Scopes { errors: vec![] };
     let ast = scopes.check(ast);
+    debug!(
+        "\n\n --------- ast scope ------\n\n {:#?} \n\n ----------------------",
+        ast
+    );
     debug!("scopes errors: {:?}", scopes.errors);
     if !scopes.errors.is_empty() {
         for e in scopes.errors {
@@ -45,6 +49,10 @@ fn main() {
         return;
     }
     let ast: Vec<exec_tree::Expression> = ast.into_iter().map(|s| s.into()).collect();
+    debug!(
+        "\n\n --------- ast exec ------\n\n {:#?} \n\n ----------------------",
+        ast
+    );
     Interpreter::abstr().run(&ast);
     Interpreter::default().run(&ast);
 }
