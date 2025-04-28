@@ -1,3 +1,4 @@
+mod builtins;
 mod exec_tree;
 mod interpreter;
 mod libc;

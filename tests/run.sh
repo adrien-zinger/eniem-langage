@@ -8,3 +8,7 @@ echo -e "--- printf3 --- \nOutput:"
 ./target/release/eniem tests/"printf3.n"
 echo -e "--- references --- \nOutput:"
 ./target/release/eniem tests/references.n
+echo -e "--- add --- \nOutput:"
+./target/release/eniem tests/add.n
+echo -e "--- add mult --- \nOutput:"
+./target/release/eniem tests/add_mult.n

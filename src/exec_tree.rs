@@ -51,6 +51,8 @@ pub enum StdFunction {
     Atoi,
     Itoa,
     Printf,
+    I32add,
+    I32mult,
     #[default]
     Nope,
 }
@@ -177,6 +179,8 @@ impl From<scopes::Statement> for Statement {
                         "atoi" => StdFunction::Atoi,
                         "itoa" => StdFunction::Itoa,
                         "printf" => StdFunction::Printf,
+                        "i32_mult" => StdFunction::I32mult,
+                        "i32_add" => StdFunction::I32add,
                         &_ => panic!("{} not found in this scope.", n.name.name),
                     };
                     let mut call: Call = n.into();

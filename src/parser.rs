@@ -1,12 +1,12 @@
 use crate::tree::*;
 
 use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::character::complete::{alpha1, anychar, digit1};
+use nom::bytes::complete::{tag, take_till};
+use nom::character::complete::{alpha1, alphanumeric1, anychar, char as cchar, digit1};
 use nom::character::complete::{multispace0, multispace1};
-use nom::combinator::{not, opt};
-use nom::multi::{many0, many1, many_till, separated_list0};
-use nom::sequence::{delimited, preceded};
+use nom::combinator::{not, opt, recognize, verify};
+use nom::multi::{many0, many0_count, many1, separated_list0};
+use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
 use nom::Parser;
 use nom_locate::position;
@@ -89,7 +89,7 @@ fn test_statement() {
 fn copy_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter copy {}", s.fragment());
     let (s, _) = delimited(multispace0, tag("copy"), multispace0).parse(s)?;
-    let (s, var) = alpha1(s)?;
+    let (s, var) = variable_name(s)?;
     let (s, pos) = position(s)?;
     let res = Statement {
         pos,
@@ -137,20 +137,23 @@ fn string_statement(s: Span) -> IResult<Span, Statement> {
 fn quoted_string(s: Span) -> IResult<Span, String> {
     let (s, _) = tag("\"")(s)?;
     let mut res = String::new();
-    let (mut s, (mut r, mut d)) = many_till(anychar, alt((tag("\\"), tag("\"")))).parse(s)?;
+    let (mut s, mut r) = take_till(|c| c == '\\' || c == '\"').parse(s)?;
     loop {
-        res.push_str(&r.iter().collect::<String>());
-        if *d.fragment() == "\"" {
+        res.push_str(r.fragment());
+        if let (s, Some(_)) = opt(tag("\"")).parse(s)? {
             return Ok((s, res));
         }
+        (s, _) = tag("\\")(s)?;
         let (s2, c) = anychar(s)?;
         match c {
             'n' => res.push('\n'),
             'r' => res.push('\r'),
             '\\' => res.push('\\'),
-            _ => todo!("add a ligne here"),
+            '\"' => res.push('\"'),
+            '\'' => res.push('\''),
+            _ => todo!("add an escape character in parser {}", c),
         }
-        (s, (r, d)) = many_till(anychar, alt((tag("\\"), tag("\"")))).parse(s2)?;
+        (s, r) = take_till(|c| c == '\\' || c == '\"').parse(s2)?;
     }
 }
 
@@ -160,8 +163,9 @@ fn test_string() {
     assert_eq!(quoted_string(Span::new("\"\"")).unwrap().1, "");
     assert_eq!(quoted_string(Span::new("\"abc\"")).unwrap().1, "abc");
     assert_eq!(quoted_string(Span::new("\"a b,c@\"")).unwrap().1, "a b,c@");
-    assert_eq!(quoted_string(Span::new("\"a\\b\"")).unwrap().1, "a\\b");
-    assert_eq!(quoted_string(Span::new("\"a\\\"b\"")).unwrap().1, "a\\\"b");
+    assert_eq!(quoted_string(Span::new("\"a\\\\b\"")).unwrap().1, "a\\b");
+    assert_eq!(quoted_string(Span::new("\"a\\\"b\"")).unwrap().1, "a\"b");
+    assert_eq!(quoted_string(Span::new("\"\\n\"")).unwrap().1, "\n");
 }
 
 fn num_statement(s: Span) -> IResult<Span, Statement> {
@@ -210,6 +214,27 @@ fn test_compound_statement() {
     assert!(compound_statement(Span::new("ab")).is_err());
     assert!(compound_statement(Span::new("")).is_err());
     compound_statement(Span::new("{ let a = (){ \"bar\" } a }")).unwrap();
+}
+
+fn variable_name(s: Span) -> IResult<Span, String> {
+    let (s, _) = multispace0(s)?;
+    let (s, varname) = recognize(pair(
+        verify(anychar, |&c| c.is_lowercase()),
+        many0_count(preceded(opt(cchar('_')), alphanumeric1)),
+    ))
+    .parse(s)?;
+    let (s, _) = multispace0(s)?;
+    Ok((s, varname.fragment().to_string()))
+}
+
+#[test]
+fn test_variable_name() {
+    assert!(variable_name(Span::new("  a  ")).is_ok());
+    assert!(variable_name(Span::new("foobar")).is_ok());
+    assert!(variable_name(Span::new("foo_bar")).is_ok());
+    assert!(variable_name(Span::new("foo32_bar")).is_ok());
+    assert!(variable_name(Span::new("32foo")).is_err());
+    assert!(variable_name(Span::new("_32foo")).is_err());
 }
 
 fn function_statement(s: Span) -> IResult<Span, Statement> {
@@ -305,7 +330,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
     let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
-    let (s, var) = delimited(multispace0, alpha1, multispace0).parse(s)?;
+    let (s, var) = variable_name(s)?;
     let (s, _) = tag("=")(s)?;
     debug!("assignation");
     let (s, to_assign) = delimited(multispace0, statement, multispace0).parse(s)?;
@@ -354,7 +379,7 @@ fn call_statement(s: Span) -> IResult<Span, Statement> {
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace1)).parse(s)?;
     // if there is no await tag, ensure that function name is not "await"
     let (s, _) = not(tag("await")).parse(s)?;
-    let (s, name) = delimited(multispace0, alpha1, multispace0).parse(s)?;
+    let (s, name) = delimited(multispace0, variable_name, multispace0).parse(s)?;
     let (s, std) = opt(tag("!")).parse(s)?;
     let (s, _) = delimited(multispace0, tag("("), multispace0).parse(s)?;
     let (s, params) = separated_list0(

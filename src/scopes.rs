@@ -217,7 +217,11 @@ impl Scopes {
                 }
             }
             tree::EStatement::StdCall(c) => {
-                if c.name == "printf" || c.name == "atoi" || c.name == "itoa" {
+                if c.name == "printf"
+                    || c.name == "atoi"
+                    || c.name == "i32_add"
+                    || c.name == "i32_mult"
+                {
                 } else {
                     panic!("unknown std function {}", c.name);
                 }

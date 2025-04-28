@@ -1,0 +1,1 @@
+printf!("%d\n", i32_add!(2, i32_mult!(2, 5)))

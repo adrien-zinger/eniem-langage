@@ -1,3 +1,4 @@
+use crate::builtins::*;
 use crate::exec_tree::*;
 use crate::libc::*;
 use crate::memory::{self, *};
@@ -172,7 +173,7 @@ impl Interpreter {
 
             self.check_functions_types();
         } else {
-            for _ in [0..=2] {
+            for _ in 0..=2 {
                 let i1 = self.clone();
                 std::thread::spawn(move || loop {
                     let job = if let Ok(jobs) = &mut i1.jobs.lock() {
@@ -864,16 +865,28 @@ impl Interpreter {
                 let res = if self.is_abstract {
                     // todo check parameters too.
                     match call.std {
-                        StdFunction::Atoi => todo!("atoi not implemented"),
+                        StdFunction::Atoi => Box::new(abstract_atoi(params[0].clone()).unwrap()),
                         StdFunction::Itoa => todo!("itoa not implemented"),
+                        StdFunction::I32add => Box::new(
+                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap(),
+                        ),
+                        StdFunction::I32mult => Box::new(
+                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap(),
+                        ),
                         StdFunction::Printf => Box::new(memory::abstract_number()),
                         _ => todo!(),
                     }
                 } else {
                     debug!("call printf");
                     match call.std {
-                        StdFunction::Atoi => todo!("atoi not implemented"),
+                        StdFunction::Atoi => Box::new(atoi(params[0].clone())),
                         StdFunction::Itoa => todo!("itoa not implemented"),
+                        StdFunction::I32add => {
+                            Box::new(i32_add(params[0].clone(), params[1].clone()))
+                        }
+                        StdFunction::I32mult => {
+                            Box::new(i32_mult(params[0].clone(), params[1].clone()))
+                        }
                         StdFunction::Printf => Box::new(memory::number(builtin_printf(&params))),
                         _ => todo!(),
                     }

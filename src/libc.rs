@@ -6,10 +6,29 @@ use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::memory::Variable;
+use crate::memory::{self, AbstractVariable, Variable};
 
 extern "C" {
     // static mut stdout: *mut llibc::FILE;
+}
+
+pub fn abstract_atoi(arg: Arc<Variable>) -> Result<Arc<Variable>, String> {
+    match &*arg {
+        Variable::String(_) => Ok(memory::abstract_number()),
+        Variable::Abstract(AbstractVariable::String) => Ok(memory::abstract_number()),
+        _ => Err("atoi expect a string as input".to_string()),
+    }
+}
+
+pub fn atoi(arg: Arc<Variable>) -> Arc<Variable> {
+    match &*arg {
+        Variable::String(s) => {
+            let s = s.lock().unwrap().clone();
+            let s = CString::new(s).unwrap();
+            memory::number(unsafe { llibc::atoi(s.as_ptr()) })
+        }
+        _ => unreachable!(),
+    }
 }
 
 /// Bind to libc printf function
