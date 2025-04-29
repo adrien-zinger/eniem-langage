@@ -31,6 +31,20 @@ pub fn atoi(arg: Arc<Variable>) -> Arc<Variable> {
     }
 }
 
+/*
+Printf Parallel Issue:
+
+It's up to the implementation of the user platform to tell
+that printf is or isn't thread safe. Using GNU to develop
+the interpreter prototype, printf looks safe in multithreading.
+But we should not depend on GNU and its particullarities.
+
+We have to think about a mechanism that create a fence
+for any file descriptor IO, including standard outputs.
+
+A lock-free mechanism is preferable.
+*/
+
 /// Bind to libc printf function
 pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
     // rust interpreter can't match variadics. Just 1 argument
