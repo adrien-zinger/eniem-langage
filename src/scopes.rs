@@ -316,6 +316,8 @@ impl Scopes {
                         extend_refs(&mut refs, &s.refs, &scope);
                         EExpression::Statement(s)
                     }
+                    tree::EExpression::Module(_) => todo!(),
+                    tree::EExpression::Using(_) => todo!(),
                 })
             }
             if input.inner.is_empty() {

@@ -5,7 +5,7 @@ use nom::bytes::complete::{tag, take_till};
 use nom::character::complete::{alpha1, alphanumeric1, anychar, char as cchar, digit1};
 use nom::character::complete::{multispace0, multispace1};
 use nom::combinator::{not, opt, recognize, verify};
-use nom::multi::{many0, many0_count, many1, separated_list0};
+use nom::multi::{many0, many0_count, many1, separated_list0, separated_list1};
 use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
 use nom::Parser;
@@ -224,6 +224,7 @@ fn variable_name(s: Span) -> IResult<Span, String> {
     ))
     .parse(s)?;
     let (s, _) = multispace0(s)?;
+    // todo, make keywords throw warnings
     Ok((s, varname.fragment().to_string()))
 }
 
@@ -547,9 +548,79 @@ pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
     ))
 }
 
+fn ext_path(s: Span) -> IResult<Span, String> {
+    let (s, path) = separated_list1(
+        delimited(multispace0, tag("::"), multispace0),
+        variable_name,
+    )
+    .parse(s)?;
+    let (s, _) = not(tag("::")).parse(s)?;
+    Ok((s, path.join("::")))
+}
+
+fn using(s: Span) -> IResult<Span, Expression> {
+    let (s, _) = multispace0(s)?;
+    let (s, pos) = position(s)?;
+    let (s, _) = tag("use")(s)?;
+    let (s, path) = delimited(multispace1, ext_path, multispace0).parse(s)?;
+    let (s, _) = opt(tag(";")).parse(s)?;
+    Ok((
+        s,
+        Expression {
+            pos,
+            inner: EExpression::Using(path),
+        },
+    ))
+}
+
+fn module(s: Span) -> IResult<Span, Expression> {
+    let (s, _) = multispace0(s)?;
+    let (s, pos) = position(s)?;
+    let (s, _) = tag("mod")(s)?;
+    let (s, _) = multispace1(s)?;
+    let (s, name) = variable_name(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, statement) = compound_statement(s)?;
+    let (s, _) = multispace0(s)?;
+    let (s, _) = opt(tag(";")).parse(s)?;
+    if let EStatement::Compound(inner) = statement.inner {
+        Ok((
+            s,
+            Expression {
+                pos,
+                inner: EExpression::Module(Module { inner, name }),
+            },
+        ))
+    } else {
+        unreachable!()
+    }
+}
+
+#[test]
+fn test_module() {
+    assert!(module(Span::new("mod a { let a = i32_add(2, 2) }")).is_ok());
+    assert!(module(Span::new("mod a { mod b { let a = i32_add(2, 2) } }")).is_ok());
+    assert!(module(Span::new("mod a{mod b{ let a = i32_add(2, 2) } }")).is_ok());
+}
+
+#[test]
+fn test_using() {
+    assert!(using(Span::new("use a::b::c;")).is_ok());
+    assert!(using(Span::new("use b")).is_ok());
+    assert!(using(Span::new("use ::b")).is_err());
+    assert!(using(Span::new("use b::")).is_err());
+}
+
 /// Parse a list of expression (at least one)
 pub fn expressions(s: Span) -> IResult<Span, Vec<Expression>> {
-    many1(alt((declaration, assignation, expression_statement))).parse(s)
+    many1(alt((
+        declaration,
+        assignation,
+        module,
+        using,
+        expression_statement,
+    )))
+    .parse(s)
 }
 
 #[test]

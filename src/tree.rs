@@ -1,3 +1,4 @@
+/// Parser tree.
 use nom_locate::*;
 
 pub type Span<'a> = LocatedSpan<&'a str>;
@@ -58,6 +59,8 @@ impl<'a> Expression<'a> {
             EExpression::Assignation(a) => return a.block_on,
             EExpression::Declaration(a) => return a.block_on,
             EExpression::Statement(s) => s,
+            EExpression::Module(_) => return false,
+            EExpression::Using(_) => return false,
         };
         match &s.inner {
             EStatement::Compound(c) => c.block_on,
@@ -81,11 +84,18 @@ pub struct Assignation<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct Module<'a> {
+    pub name: String,
+    pub inner: Compound<'a>,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum EExpression<'a> {
     Statement(Statement<'a>),
     Declaration(Assignation<'a>),
     Assignation(Assignation<'a>),
-    // todo, unary/binary operation... idk
+    Module(Module<'a>),
+    Using(String),
 }
 
 #[derive(Debug, PartialEq)]
