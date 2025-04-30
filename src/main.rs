@@ -36,7 +36,7 @@ fn main() {
         .unwrap()
         .write_all(format!("{:#?}", ast).as_bytes()).unwrap();
     */
-    let mut scopes = scopes::Scopes { errors: vec![] };
+    let mut scopes = scopes::Scopes::default();
     let ast = scopes.check(ast);
     debug!(
         "\n\n --------- ast scope ------\n\n {:#?} \n\n ----------------------",

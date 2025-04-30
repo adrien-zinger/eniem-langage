@@ -244,6 +244,7 @@ impl Interpreter {
                         fc: None,
                     }
                 }
+                EExpression::Using(n) => todo!(),
             };
 
             // todo test in another pass if 'await' is on the last expression
@@ -815,6 +816,7 @@ impl Interpreter {
                     EExpression::Declaration(assignation) => {
                         self.assignation(assignation, job.clone());
                     }
+                    EExpression::Using(n) => todo!(),
                 }
             }
             EJob::Write((tag, value, decls)) => {

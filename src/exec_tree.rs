@@ -68,6 +68,8 @@ pub struct Call {
 #[derive(Debug, Clone)]
 pub struct Compound {
     pub block_on: bool,
+    /// Contains module path if this object is a module.
+    pub module: Option<String>,
     pub inner: Vec<Expression>,
     /// Variable the compound declare.
     pub decls: Vec<String>,
@@ -99,11 +101,17 @@ pub struct Assignation {
 }
 
 #[derive(Debug, Clone)]
+pub struct Using {
+    pub var: String,
+    pub module: Compound,
+}
+
+#[derive(Debug, Clone)]
 pub enum EExpression {
     Statement(Statement),
     Declaration(Assignation),
     Assignation(Assignation),
-    // todo, unary/binary operation... idk
+    Using(Using),
 }
 
 impl From<scopes::Expression> for Expression {
@@ -113,6 +121,7 @@ impl From<scopes::Expression> for Expression {
                 scopes::EExpression::Statement(n) => EExpression::Statement(n.into()),
                 scopes::EExpression::Declaration(n) => EExpression::Declaration(n.into()),
                 scopes::EExpression::Assignation(n) => EExpression::Assignation(n.into()),
+                scopes::EExpression::Using(n) => todo!(),
             },
             latest: false,
         }
@@ -125,7 +134,7 @@ impl From<scopes::Assignation> for Assignation {
             block_on: val.block_on,
             var: format!(
                 "{}#{}:{}:{}",
-                val.info.scope, val.info.line, val.info.column, val.info.name
+                val.info.scope.name, val.info.line, val.info.column, val.info.name
             ),
             to_assign: val.to_assign.into(),
         }
@@ -135,7 +144,10 @@ impl From<scopes::Assignation> for Assignation {
 impl From<scopes::Function> for Function {
     fn from(val: scopes::Function) -> Self {
         let form = |info: scopes::VarInfo| {
-            format!("{}#{}:{}:{}", info.scope, info.line, info.column, info.name)
+            format!(
+                "{}#{}:{}:{}",
+                info.scope.name, info.line, info.column, info.name
+            )
         };
         let args = val.args.into_iter().map(form).collect();
         let captures = val.inner.refs.iter().cloned().map(form).collect();
@@ -155,7 +167,7 @@ impl From<scopes::Call> for Call {
         Call {
             block_on: val.block_on,
             params: val.params.into_iter().map(|s| s.into()).collect(),
-            name: format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name),
+            name: format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name),
             std: StdFunction::default(),
         }
     }
@@ -168,11 +180,12 @@ impl From<scopes::Statement> for Statement {
                 scopes::EStatement::Function(n) => EStatement::Function(n.into()),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
-                scopes::EStatement::Compound(n) => EStatement::Compound(n.into()),
+                scopes::EStatement::Compound(n) => EStatement::Compound(n.borrow().clone().into()),
                 scopes::EStatement::Copy(n) => EStatement::Copy(n),
-                scopes::EStatement::Ref(n) => {
-                    EStatement::Ref(format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
-                }
+                scopes::EStatement::Ref(n) => EStatement::Ref(format!(
+                    "{}#{}:{}:{}",
+                    n.scope.name, n.line, n.column, n.name
+                )),
                 scopes::EStatement::Call(n) => EStatement::Call(n.into()),
                 scopes::EStatement::StdCall(n) => {
                     let stdf = match n.name.name.as_str() {
@@ -192,7 +205,7 @@ impl From<scopes::Statement> for Statement {
             refs: val
                 .refs
                 .into_iter()
-                .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
+                .map(|n| format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name))
                 .collect(),
         }
     }
@@ -210,10 +223,11 @@ impl From<scopes::Compound> for Compound {
         Compound {
             inner,
             block_on: val.block_on,
+            module: val.module,
             decls: val
                 .decls
                 .into_iter()
-                .map(|n| format!("{}#{}:{}:{}", n.scope, n.line, n.column, n.name))
+                .map(|n| format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name))
                 .collect(),
         }
     }

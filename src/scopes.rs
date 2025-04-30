@@ -1,5 +1,6 @@
 use crate::tree;
 
+use std::cell::RefCell;
 use std::collections::HashSet;
 
 macro_rules! debug {
@@ -10,14 +11,60 @@ macro_rules! debug {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct Scope {
+    pub name: String,
+    pub module_path: Option<String>,
+}
+
+impl Scope {
+    fn push(&self, line: u32, column: usize) -> Self {
+        Scope {
+            name: format!("{}:scope_{}:{}", self.name, line, column),
+            module_path: None,
+        }
+    }
+
+    fn push_mod(&self, module: String) -> Self {
+        let module_path = if let Some(module_path) = &self.module_path {
+            Some(format!("{module_path}::{module}"))
+        } else {
+            Some(module.clone())
+        };
+        Scope {
+            name: format!("{}:module_{}", self.name, module),
+            module_path,
+        }
+    }
+
+    fn push_fence(&self) -> Self {
+        Scope {
+            name: format!("{}&", self.name),
+            module_path: self.module_path.clone(),
+        }
+    }
+
+    fn is_module(&self) -> bool {
+        self.module_path.is_some()
+    }
+
+    fn module(&self) -> String {
+        if let Some(m) = &self.module_path {
+            m.clone()
+        } else {
+            panic!("unexpected module unwrap");
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct VarInfo {
     pub name: String,
     pub line: u32,
     pub column: usize,
-    pub scope: String,
+    pub scope: Scope,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Statement {
     pub inner: EStatement,
     /// external refs
@@ -26,35 +73,36 @@ pub struct Statement {
     pub column: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function {
     pub id: String,
     pub args: Vec<VarInfo>,
     pub inner: Compound,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Call {
     pub block_on: bool,
     pub params: Vec<Statement>,
     pub name: VarInfo,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Compound {
     pub block_on: bool,
     pub inner: Vec<Expression>,
     pub decls: Vec<VarInfo>,
     /// external refs
     pub refs: HashSet<VarInfo>,
+    pub module: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
     Num(i32 /* inner signed number */),
-    Compound(Compound),
+    Compound(RefCell<Compound>),
     Copy(String /* variable name */),
     Ref(VarInfo),
     Call(Call),
@@ -62,12 +110,12 @@ pub enum EStatement {
     Skip,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expression {
     pub inner: EExpression,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assignation {
     pub block_on: bool,
     pub var: String,
@@ -75,11 +123,22 @@ pub struct Assignation {
     pub to_assign: Statement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct Using {
+    /// Incremental counter that identify using reference
+    /// and allow to sort them.
+    pub id: usize,
+    pub name: String,
+    pub var: Option<VarInfo>,
+    pub module: Option<Compound>,
+}
+
+#[derive(Debug, Clone)]
 pub enum EExpression {
     Statement(Statement),
     Declaration(Assignation),
     Assignation(Assignation),
+    Using(RefCell<Using>),
 }
 
 /// Look into declaration list for a valid variable.
@@ -92,21 +151,37 @@ fn lookup(var: &str, decls: &[VarInfo]) -> Option<VarInfo> {
     None
 }
 
-fn extend_refs(refs: &mut HashSet<VarInfo>, other: &HashSet<VarInfo>, current_scope: &str) {
-    refs.extend(other.iter().filter(|v| v.scope != current_scope).cloned());
+fn extend_refs(refs: &mut HashSet<VarInfo>, other: &HashSet<VarInfo>, current_scope: &Scope) {
+    refs.extend(
+        other
+            .iter()
+            .filter(|v| v.scope.name != current_scope.name)
+            .cloned(),
+    );
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
+/// Separated pass to check code validity.
 pub struct Scopes {
     pub errors: Vec<String>,
+
+    /// Variables that are declared in modules.
+    pub static_decls: HashSet<VarInfo>,
+
+    /// Modules
+    pub modules: Vec<RefCell<Compound>>,
+
+    /// Using references
+    pub usings: Vec<RefCell<Using>>,
 }
 
 impl Scopes {
+    /// Handle an assignation
     fn assignation(
         &mut self,
         assign: tree::Assignation,
         info: VarInfo,
-        scope: String,
+        scope: Scope,
         decls: Vec<VarInfo>,
     ) -> Assignation {
         let block_on = assign.block_on;
@@ -120,10 +195,11 @@ impl Scopes {
         }
     }
 
+    /// Handle a statement
     fn statement(
         &mut self,
         input: tree::Statement,
-        scope: String,
+        scope: Scope,
         decls: Vec<VarInfo>,
     ) -> Statement {
         let line = input.pos.location_line();
@@ -131,7 +207,7 @@ impl Scopes {
         let mut refs = HashSet::new();
         let inner = match input.inner {
             tree::EStatement::Function(f) => {
-                let new_scope = format!("{}:block_{}_{}", scope, line, column);
+                let new_scope = scope.push(line, column);
                 // todo: modify parser in order to have line and column for each parameter.
                 let args: Vec<VarInfo> = f
                     .args
@@ -148,7 +224,7 @@ impl Scopes {
                 let inner = self.compound(f.inner, new_scope.clone(), decls);
                 extend_refs(&mut refs, &inner.refs, &scope);
                 EStatement::Function(Function {
-                    id: new_scope,
+                    id: new_scope.name,
                     inner,
                     args,
                 })
@@ -157,11 +233,11 @@ impl Scopes {
             tree::EStatement::Num(num) => EStatement::Num(num),
             tree::EStatement::Operation(_) => todo!(),
             tree::EStatement::Compound(c) => {
-                let new_scope = format!("{}:block_{}_{}", scope, line, column);
+                let new_scope = scope.push(line, column);
                 let compound = self.compound(c, new_scope.clone(), decls.clone());
                 extend_refs(&mut refs, &compound.refs, &new_scope);
                 debug!("compound refs merged: {:?}", refs);
-                EStatement::Compound(compound)
+                EStatement::Compound(RefCell::new(compound))
             }
             tree::EStatement::Copy(v) => {
                 if let Some(info) = lookup(&v, &decls) {
@@ -254,24 +330,37 @@ impl Scopes {
     fn compound(
         &mut self,
         mut input: tree::Compound,
-        mut scope: String,
+        mut scope: Scope,
         mut decls: Vec<VarInfo>,
     ) -> Compound {
-        debug!("Check {scope} variable's scope");
         let mut inner = vec![];
         let mut refs = HashSet::new();
         let mut local_decls = vec![];
         #[cfg(feature = "debug_scopes")]
         let len = input.inner.len();
-        let mut scope_pos = 0;
         loop {
             let mut end = 0;
             // Add all declarations of the scope.
+            if scope.is_module() {
+                for expr in &input.inner {
+                    if let tree::EExpression::Declaration(a) = &expr.inner {
+                        let v = VarInfo {
+                            name: format!("{}::{}", scope.module(), a.var.clone()),
+                            scope: scope.clone(),
+                            line: expr.pos.location_line(),
+                            column: expr.pos.get_column(),
+                        };
+                        self.static_decls.insert(v);
+                    }
+                    if expr.is_blocking() {
+                        panic!("a module cannot be blocking")
+                    }
+                }
+            }
+
             for expr in &input.inner {
-                debug!("start at {end}");
                 end += 1;
                 if let tree::EExpression::Declaration(a) = &expr.inner {
-                    debug!("{} declared in scope {scope}", a.var);
                     let v = VarInfo {
                         name: a.var.clone(),
                         scope: scope.clone(),
@@ -316,8 +405,33 @@ impl Scopes {
                         extend_refs(&mut refs, &s.refs, &scope);
                         EExpression::Statement(s)
                     }
-                    tree::EExpression::Module(_) => todo!(),
-                    tree::EExpression::Using(_) => todo!(),
+                    tree::EExpression::Module(m) => {
+                        let line = expr.pos.location_line();
+                        let column = expr.pos.get_column();
+                        let new_scope = scope.push_mod(m.name);
+                        let compound =
+                            RefCell::new(self.compound(m.inner, new_scope.clone(), decls.clone()));
+                        extend_refs(&mut refs, &compound.borrow().refs, &new_scope);
+                        debug!("compound refs merged: {:?}", refs);
+                        self.modules.push(compound.clone());
+                        let refs = compound.borrow().refs.clone();
+                        EExpression::Statement(Statement {
+                            line,
+                            refs,
+                            column,
+                            inner: EStatement::Compound(compound),
+                        })
+                    }
+                    tree::EExpression::Using(name) => {
+                        // Resolved later
+                        let using = RefCell::new(Using {
+                            id: self.usings.len(),
+                            name,
+                            var: None,
+                            module: None,
+                        });
+                        EExpression::Using(using)
+                    }
                 })
             }
             if input.inner.is_empty() {
@@ -325,8 +439,7 @@ impl Scopes {
                 break;
             } else {
                 debug!("end: {end} != len: {len}");
-                scope = format!("{}_", scope_pos);
-                scope_pos += 1;
+                scope = scope.push_fence();
             }
         }
         Compound {
@@ -337,6 +450,7 @@ impl Scopes {
             block_on: input.block_on,
             refs,
             decls: local_decls,
+            module: scope.module_path,
         }
     }
 
@@ -347,14 +461,30 @@ impl Scopes {
     /// the interpretation requirement. It also rename variables with a single
     /// id derived from his position and his code block.
     pub fn check(&mut self, input: Vec<tree::Expression>) -> Vec<Expression> {
-        self.compound(
-            tree::Compound {
-                inner: input,
-                block_on: false,
-            },
-            "main".to_string(),
-            vec![],
-        )
-        .inner
+        let ret = self
+            .compound(
+                tree::Compound {
+                    inner: input,
+                    block_on: false,
+                },
+                Scope {
+                    name: "main".to_string(),
+                    module_path: None, /* todo: is main a module? */
+                },
+                vec![],
+            )
+            .inner;
+
+        for mut using in self.usings.iter().map(|u| u.borrow_mut()) {
+            let info = self.static_decls.iter().find(|d| d.name == using.name);
+            if info.is_some() {
+                using.var = info.cloned()
+            } else {
+                self.errors
+                    .push(format!("Reference to {} not found", using.name));
+            }
+        }
+
+        ret
     }
 }
