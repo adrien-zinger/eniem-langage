@@ -523,7 +523,7 @@ impl Interpreter {
             }
         } else {
             debug!("Invalid type: cannot call a non function type");
-            todo!("manage error handling for abstract execution");
+            panic!("manage error handling for abstract execution {:#?}", call);
         };
 
         // Compute the scope len which is the compound length, the functions arguments

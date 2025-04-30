@@ -114,35 +114,37 @@ pub enum EExpression {
     Using(Using),
 }
 
-impl From<scopes::Expression> for Expression {
-    fn from(val: scopes::Expression) -> Self {
+pub struct Scope2ETree;
+
+impl Scope2ETree {
+    pub fn expression(&mut self, val: scopes::Expression) -> Expression {
         Expression {
             inner: match val.inner {
-                scopes::EExpression::Statement(n) => EExpression::Statement(n.into()),
-                scopes::EExpression::Declaration(n) => EExpression::Declaration(n.into()),
-                scopes::EExpression::Assignation(n) => EExpression::Assignation(n.into()),
+                scopes::EExpression::Statement(n) => EExpression::Statement(self.statement(n)),
+                scopes::EExpression::Declaration(n) => {
+                    EExpression::Declaration(self.assignation(n))
+                }
+                scopes::EExpression::Assignation(n) => {
+                    EExpression::Assignation(self.assignation(n))
+                }
                 scopes::EExpression::Using(n) => todo!(),
             },
             latest: false,
         }
     }
-}
 
-impl From<scopes::Assignation> for Assignation {
-    fn from(val: scopes::Assignation) -> Self {
+    fn assignation(&mut self, val: scopes::Assignation) -> Assignation {
         Assignation {
             block_on: val.block_on,
             var: format!(
                 "{}#{}:{}:{}",
                 val.info.scope.name, val.info.line, val.info.column, val.info.name
             ),
-            to_assign: val.to_assign.into(),
+            to_assign: self.statement(val.to_assign),
         }
     }
-}
 
-impl From<scopes::Function> for Function {
-    fn from(val: scopes::Function) -> Self {
+    fn function(&mut self, val: scopes::Function) -> Function {
         let form = |info: scopes::VarInfo| {
             format!(
                 "{}#{}:{}:{}",
@@ -154,39 +156,37 @@ impl From<scopes::Function> for Function {
         Function {
             id: val.id,
             args,
-            inner: val.inner.into(),
+            inner: self.compound(val.inner),
             captures,
             same_as: Default::default(),
         }
     }
-}
 
-impl From<scopes::Call> for Call {
-    fn from(val: scopes::Call) -> Self {
+    fn call(&mut self, val: scopes::Call) -> Call {
         let n = val.name;
         Call {
             block_on: val.block_on,
-            params: val.params.into_iter().map(|s| s.into()).collect(),
+            params: val.params.into_iter().map(|s| self.statement(s)).collect(),
             name: format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name),
             std: StdFunction::default(),
         }
     }
-}
 
-impl From<scopes::Statement> for Statement {
-    fn from(val: scopes::Statement) -> Self {
+    fn statement(&mut self, val: scopes::Statement) -> Statement {
         Statement {
             inner: match val.inner {
-                scopes::EStatement::Function(n) => EStatement::Function(n.into()),
+                scopes::EStatement::Function(n) => EStatement::Function(self.function(n)),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
-                scopes::EStatement::Compound(n) => EStatement::Compound(n.borrow().clone().into()),
+                scopes::EStatement::Compound(n) => {
+                    EStatement::Compound(self.compound(n.borrow().clone()))
+                }
                 scopes::EStatement::Copy(n) => EStatement::Copy(n),
                 scopes::EStatement::Ref(n) => EStatement::Ref(format!(
                     "{}#{}:{}:{}",
                     n.scope.name, n.line, n.column, n.name
                 )),
-                scopes::EStatement::Call(n) => EStatement::Call(n.into()),
+                scopes::EStatement::Call(n) => EStatement::Call(self.call(n)),
                 scopes::EStatement::StdCall(n) => {
                     let stdf = match n.name.name.as_str() {
                         "atoi" => StdFunction::Atoi,
@@ -196,7 +196,7 @@ impl From<scopes::Statement> for Statement {
                         "i32_add" => StdFunction::I32add,
                         &_ => panic!("{} not found in this scope.", n.name.name),
                     };
-                    let mut call: Call = n.into();
+                    let mut call = self.call(n);
                     call.std = stdf;
                     EStatement::StdCall(call)
                 }
@@ -209,11 +209,10 @@ impl From<scopes::Statement> for Statement {
                 .collect(),
         }
     }
-}
 
-impl From<scopes::Compound> for Compound {
-    fn from(val: scopes::Compound) -> Self {
-        let mut inner: Vec<Expression> = val.inner.into_iter().map(|e| e.into()).collect();
+    pub fn compound(&mut self, val: scopes::Compound) -> Compound {
+        let mut inner: Vec<Expression> =
+            val.inner.into_iter().map(|e| self.expression(e)).collect();
 
         if !inner.is_empty() {
             let last = inner.len() - 1;

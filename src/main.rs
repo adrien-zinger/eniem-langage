@@ -49,7 +49,8 @@ fn main() {
         }
         return;
     }
-    let ast: Vec<exec_tree::Expression> = ast.into_iter().map(|s| s.into()).collect();
+    let mut adapter = exec_tree::Scope2ETree;
+    let ast: Vec<exec_tree::Expression> = ast.into_iter().map(|s| adapter.expression(s)).collect();
     debug!(
         "\n\n --------- ast exec ------\n\n {:#?} \n\n ----------------------",
         ast
