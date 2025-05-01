@@ -1,6 +1,6 @@
 use crate::scopes;
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct Statement {
@@ -70,6 +70,7 @@ pub struct Compound {
     pub block_on: bool,
     /// Contains module path if this object is a module.
     pub module: Option<String>,
+    pub initialized: Arc<AtomicBool>,
     pub inner: Vec<Expression>,
     /// Variable the compound declare.
     pub decls: Vec<String>,
@@ -80,7 +81,7 @@ pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
     Num(i32 /* inner signed number */),
-    Compound(Compound),
+    Compound(Arc<Compound>),
     Copy(String /* variable name */),
     Ref(String),
     Call(Call),
@@ -103,7 +104,7 @@ pub struct Assignation {
 #[derive(Debug, Clone)]
 pub struct Using {
     pub var: String,
-    pub module: Compound,
+    pub module: Arc<Compound>,
 }
 
 #[derive(Debug, Clone)]
@@ -114,7 +115,10 @@ pub enum EExpression {
     Using(Using),
 }
 
-pub struct Scope2ETree;
+#[derive(Default)]
+pub struct Scope2ETree {
+    modules: HashMap<String, Arc<Compound>>,
+}
 
 impl Scope2ETree {
     pub fn expression(&mut self, val: scopes::Expression) -> Expression {
@@ -179,7 +183,17 @@ impl Scope2ETree {
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
                 scopes::EStatement::Compound(n) => {
-                    EStatement::Compound(self.compound(n.borrow().clone()))
+                    if let Some(module_id) = &n.borrow().module {
+                        if let Some(module) = self.modules.get(module_id) {
+                            EStatement::Compound(module.clone())
+                        } else {
+                            let module = Arc::new(self.compound(n.borrow().clone()));
+                            self.modules.insert(module_id.clone(), module.clone());
+                            EStatement::Compound(module)
+                        }
+                    } else {
+                        EStatement::Compound(Arc::new(self.compound(n.borrow().clone())))
+                    }
                 }
                 scopes::EStatement::Copy(n) => EStatement::Copy(n),
                 scopes::EStatement::Ref(n) => EStatement::Ref(format!(
@@ -223,6 +237,7 @@ impl Scope2ETree {
             inner,
             block_on: val.block_on,
             module: val.module,
+            initialized: Arc::new(AtomicBool::new(false)),
             decls: val
                 .decls
                 .into_iter()

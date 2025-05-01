@@ -138,6 +138,10 @@ pub enum EExpression {
     Statement(Statement),
     Declaration(Assignation),
     Assignation(Assignation),
+    /// Using expression `use my_module::foo`
+    // This is a refcell because we share the reference between
+	// the tree and the `usings` vector to process the nodes after
+	// all.
     Using(RefCell<Using>),
 }
 
@@ -430,6 +434,7 @@ impl Scopes {
                             var: None,
                             module: None,
                         });
+                        self.usings.push(using.clone());
                         EExpression::Using(using)
                     }
                 })
