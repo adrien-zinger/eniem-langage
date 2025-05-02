@@ -698,6 +698,21 @@ impl Interpreter {
                 match &expr.inner {
                     EExpression::Statement(statement) => match &statement.inner {
                         EStatement::Compound(input) => {
+                            // this compound can be a simple compound or a module
+                            // declaration.
+                            // If it's a module, check if it has already been executed.
+                            if input.module.is_some() && !input.initialized.load(Ordering::SeqCst) && input
+                                    .initialized
+                                    .compare_exchange(
+                                        false,
+                                        true,
+                                        Ordering::SeqCst,
+                                        Ordering::SeqCst,
+                                    )
+                                    .is_err() {
+                                todo!("return with no execution")
+                            }
+
                             debug!("create a new scope from a scope");
                             let value = if latest {
                                 job.scope.value.clone()

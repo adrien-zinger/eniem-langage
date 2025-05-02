@@ -1,7 +1,7 @@
 use crate::tree;
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 macro_rules! debug {
     ($($rest:tt)*) => {
@@ -125,12 +125,9 @@ pub struct Assignation {
 
 #[derive(Debug, Clone)]
 pub struct Using {
-    /// Incremental counter that identify using reference
-    /// and allow to sort them.
-    pub id: usize,
     pub name: String,
     pub var: Option<VarInfo>,
-    pub module: Option<Compound>,
+    pub module: Option<RefCell<Compound>>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,8 +137,8 @@ pub enum EExpression {
     Assignation(Assignation),
     /// Using expression `use my_module::foo`
     // This is a refcell because we share the reference between
-	// the tree and the `usings` vector to process the nodes after
-	// all.
+    // the tree and the `usings` vector to process the nodes after
+    // all.
     Using(RefCell<Using>),
 }
 
@@ -173,7 +170,7 @@ pub struct Scopes {
     pub static_decls: HashSet<VarInfo>,
 
     /// Modules
-    pub modules: Vec<RefCell<Compound>>,
+    pub modules: HashMap<String, RefCell<Compound>>,
 
     /// Using references
     pub usings: Vec<RefCell<Using>>,
@@ -417,7 +414,8 @@ impl Scopes {
                             RefCell::new(self.compound(m.inner, new_scope.clone(), decls.clone()));
                         extend_refs(&mut refs, &compound.borrow().refs, &new_scope);
                         debug!("compound refs merged: {:?}", refs);
-                        self.modules.push(compound.clone());
+                        self.modules
+                            .insert(scope.module_path.clone().unwrap(), compound.clone());
                         let refs = compound.borrow().refs.clone();
                         EExpression::Statement(Statement {
                             line,
@@ -429,7 +427,6 @@ impl Scopes {
                     tree::EExpression::Using(name) => {
                         // Resolved later
                         let using = RefCell::new(Using {
-                            id: self.usings.len(),
                             name,
                             var: None,
                             module: None,
@@ -483,7 +480,10 @@ impl Scopes {
         for mut using in self.usings.iter().map(|u| u.borrow_mut()) {
             let info = self.static_decls.iter().find(|d| d.name == using.name);
             if info.is_some() {
-                using.var = info.cloned()
+                using.var = info.cloned();
+                let info = info.as_ref().unwrap();
+                let module_id = info.scope.module_path.as_ref().unwrap();
+                using.module = self.modules.get(module_id).cloned();
             } else {
                 self.errors
                     .push(format!("Reference to {} not found", using.name));

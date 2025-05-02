@@ -131,7 +131,31 @@ impl Scope2ETree {
                 scopes::EExpression::Assignation(n) => {
                     EExpression::Assignation(self.assignation(n))
                 }
-                scopes::EExpression::Using(n) => todo!(),
+                scopes::EExpression::Using(n) => {
+                    let n = n.borrow();
+                    let module_id = n
+                        .var
+                        .as_ref()
+                        .expect("variable info was expected here")
+                        .scope
+                        .module_path
+                        .as_ref()
+                        .expect("module path was expected here");
+                    if let Some(module) = self.modules.get(module_id) {
+                        EExpression::Using(Using {
+                            var: n.name.clone(),
+                            module: module.clone(),
+                        })
+                    } else {
+                        let compound = self.compound(n.module.clone().unwrap().borrow().clone());
+                        let module = Arc::new(compound);
+                        self.modules.insert(module_id.clone(), module.clone());
+                        EExpression::Using(Using {
+                            var: n.name.clone(),
+                            module: module.clone(),
+                        })
+                    }
+                }
             },
             latest: false,
         }
