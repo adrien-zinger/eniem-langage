@@ -289,7 +289,11 @@ impl Interpreter {
                 let scope = Arc::new(Scope {
                     id: new_scope_id,
                     len: AtomicU64::new(input.inner.len() as u64),
-                    memory: job.scope.memory.new(&assign.to_assign.refs, job.scope.id),
+                    memory: job.scope.memory.new(
+                        &assign.to_assign.refs,
+                        new_scope_id,
+                        job.scope.id,
+                    ),
                     value,
                     job: Some(job),
                 });
@@ -297,7 +301,7 @@ impl Interpreter {
             }
             EStatement::Str(val) => {
                 let key = format!("{}::{}", assign.var, job.scope.id);
-                debug!("assign a string to {key}");
+                debug!("assign a string to {key}, {val}");
                 if self.is_abstract {
                     let val = memory::abstract_string();
                     job.scope.memory.abstr_write(key, val);
@@ -734,7 +738,10 @@ impl Interpreter {
                                 .collect();
 
                             debug!("scope refs: {:?}", statement.refs);
-                            let memory = job.scope.memory.new(&statement.refs, job.scope.id);
+                            let memory =
+                                job.scope
+                                    .memory
+                                    .new(&statement.refs, new_scope_id, job.scope.id);
 
                             let compound = Job {
                                 inner: EJob::Empty((value.clone(), decls)),

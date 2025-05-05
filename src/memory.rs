@@ -3,7 +3,7 @@ use crate::interpreter::*;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI32, AtomicPtr};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
 
 macro_rules! debug {
     ($($rest:tt)*) => {
@@ -116,16 +116,20 @@ pub fn push(mem: Arc<Memory>) -> Arc<Memory> {
 */
 
 impl Memory {
-    pub fn new(&self, refs: &HashSet<String>, scope: u64) -> Arc<Memory> {
+    pub fn new(&self, refs: &HashSet<String>, new_scope: u64, curr_scope: u64) -> Arc<Memory> {
         if refs.is_empty() {
             return Default::default();
         }
         if let Ok(m) = &mut self.map.write() {
             let mut map = HashMap::<String, Arc<Variable>>::new();
-            for key in refs.iter().map(|k| format!("{}::{}", k, scope)) {
-                debug!("forward {} in new memory", key);
-                let varbox = m.entry(key.clone()).or_default();
-                map.insert(key, varbox.clone());
+            for key in refs {
+                debug!(
+                    "forward {} in new memory, from scope {} to scope {}",
+                    key, curr_scope, new_scope
+                );
+                let varbox = m.entry(format!("{}::{}", key, curr_scope)).or_default();
+                debug!("momory forwarded, varbox content: {:?}", varbox);
+                map.insert(format!("{}::{}", key, new_scope), varbox.clone());
             }
             Arc::new(Memory { map: map.into() })
         } else {
@@ -171,7 +175,33 @@ impl Memory {
 
     pub fn write(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
-            mem.insert(key, value);
+            mem.entry(key)
+                .and_modify(|varbox| match &**varbox {
+                    Variable::String(old_value) => {
+                        if let Variable::String(new_value) = &*value {
+                            *old_value.lock().unwrap() = new_value.lock().unwrap().clone();
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    Variable::Number(old_value) => {
+                        if let Variable::Number(new_value) = &*value {
+                            let new_value_load = new_value.load(Ordering::SeqCst);
+                            old_value.store(new_value_load, Ordering::SeqCst);
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    Variable::Function(old_value) => {
+                        if let Variable::Function(new_value) = &*value {
+                            *old_value.lock().unwrap() = new_value.lock().unwrap().clone();
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    _ => todo!("var assignation"),
+                })
+                .or_insert(value);
         } else {
             panic!("failed to access memory");
         }
