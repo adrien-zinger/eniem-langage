@@ -173,21 +173,21 @@ impl Interpreter {
 
             self.check_functions_types();
         } else {
-            for _ in 0..=2 {
-                let i1 = self.clone();
-                std::thread::spawn(move || loop {
-                    let job = if let Ok(jobs) = &mut i1.jobs.lock() {
-                        if let Some(job) = jobs.pop_back() {
-                            job.clone()
-                        } else {
-                            break;
-                        }
-                    } else {
-                        continue;
-                    };
-                    i1.exec(job);
-                });
-            }
+            // for _ in 0..=2 {
+            //     let i1 = self.clone();
+            //     std::thread::spawn(move || loop {
+            //         let job = if let Ok(jobs) = &mut i1.jobs.lock() {
+            //             if let Some(job) = jobs.pop_back() {
+            //                 job.clone()
+            //             } else {
+            // 				break;
+            //             }
+            //         } else {
+            //             continue;
+            //         };
+            //         i1.exec(job);
+            //     });
+            // }
             loop {
                 let job = if let Ok(jobs) = &mut self.jobs.lock() {
                     if let Some(job) = jobs.pop_back() {
@@ -398,6 +398,7 @@ impl Interpreter {
     ///  latest: is it the latest expression of the current scope.
     ///  write: Some if the result has to be assigned to something, otherwise None.
     fn std_call_statement(&self, call: &Call, job: Job, latest: bool, write: Option<String>) {
+        debug!("enter std call {:?}", call);
         // Identifier of 2 scopes, the one which contains the builtin call and the
         // one which initialise the arguments.
         let scope_id = self.new_id();
@@ -701,7 +702,9 @@ impl Interpreter {
                             // this compound can be a simple compound or a module
                             // declaration.
                             // If it's a module, check if it has already been executed.
-                            if input.module.is_some() && !input.initialized.load(Ordering::SeqCst) && input
+                            if input.module.is_some()
+                                && !input.initialized.load(Ordering::SeqCst)
+                                && input
                                     .initialized
                                     .compare_exchange(
                                         false,
@@ -709,7 +712,8 @@ impl Interpreter {
                                         Ordering::SeqCst,
                                         Ordering::SeqCst,
                                     )
-                                    .is_err() {
+                                    .is_err()
+                            {
                                 todo!("return with no execution")
                             }
 
@@ -868,17 +872,20 @@ impl Interpreter {
                 debug!("delete {:?} requested", _decls);
             }
             EJob::Builtin(call) => {
-                let params: Vec<Arc<Variable>> = call
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, _)| {
-                        job.scope
-                            .memory
-                            .get(&format!("{}::{}", index, job.scope.id))
-                            .unwrap()
-                    })
-                    .collect();
+                let mut params = vec![];
+                for (index, _) in call.params.iter().enumerate() {
+                    let param_opt = job
+                        .scope
+                        .memory
+                        .get(&format!("{}::{}", index, job.scope.id));
+                    if let Some(param) = param_opt {
+                        params.push(param);
+                    } else {
+                        self.schedule(job);
+                        return;
+                    }
+                }
+
                 let res = if self.is_abstract {
                     // todo check parameters too.
                     match call.std {
@@ -894,7 +901,6 @@ impl Interpreter {
                         _ => todo!(),
                     }
                 } else {
-                    debug!("call printf");
                     match call.std {
                         StdFunction::Atoi => Box::new(atoi(params[0].clone())),
                         StdFunction::Itoa => todo!("itoa not implemented"),

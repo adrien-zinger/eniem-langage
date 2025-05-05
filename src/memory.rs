@@ -142,9 +142,11 @@ impl Memory {
             let key = format!("{}::{}", var, scope.id);
             debug!("look for {}", key);
             if let Ok(vars) = self.map.read() {
-                let varbox = vars.get(&key);
-                if varbox.is_some() {
-                    return varbox.cloned();
+                if let Some(varbox) = vars.get(&key) {
+                    match &**varbox {
+                        Variable::Empty => return None,
+                        _ => return Some(varbox.clone()),
+                    }
                 }
             }
             if let Some(job) = &scope.job {
@@ -157,9 +159,11 @@ impl Memory {
 
     pub fn get(&self, key: &str) -> Option<Arc<Variable>> {
         if let Ok(vars) = self.map.read() {
-            let varbox = vars.get(key);
-            if varbox.is_some() {
-                return varbox.cloned();
+            if let Some(varbox) = vars.get(key) {
+                match &**varbox {
+                    Variable::Empty => return None,
+                    _ => return Some(varbox.clone()),
+                }
             }
         }
         None

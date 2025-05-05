@@ -18,7 +18,7 @@ pub fn i32_add(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
         (Variable::Number(a), Variable::Number(b)) => {
             memory::number(a.load(Ordering::SeqCst) + b.load(Ordering::SeqCst))
         }
-        _ => unreachable!(),
+        _ => unreachable!("{:?} {:?}", a, b),
     }
 }
 
