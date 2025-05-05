@@ -121,6 +121,7 @@ pub struct Assignation {
     pub var: String,
     pub info: VarInfo,
     pub to_assign: Statement,
+    pub is_ref: Option<VarInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -187,12 +188,24 @@ impl Scopes {
     ) -> Assignation {
         let block_on = assign.block_on;
         let var = assign.var.clone();
+        let is_ref = if let Some(info) = lookup(&var, &decls) {
+            if info.scope != scope {
+                Some(info)
+            } else {
+                None
+            }
+        } else {
+            self.errors
+                .push(format!("{var} not declared in this scope."));
+            None
+        };
         let to_assign = self.statement(assign.to_assign, scope, decls);
         Assignation {
             info,
             block_on,
             var,
             to_assign,
+            is_ref,
         }
     }
 
@@ -395,6 +408,9 @@ impl Scopes {
                             debug!("detect assign to {}", a.var);
                             let a = self.assignation(a, info, scope.clone(), decls.clone());
                             extend_refs(&mut refs, &a.to_assign.refs, &scope);
+                            if let Some(info) = &a.is_ref {
+                                extend_refs(&mut refs, &HashSet::from_iter([info.clone()]), &scope);
+                            }
                             EExpression::Assignation(a)
                         } else {
                             self.errors.push("variable not found".to_string());
