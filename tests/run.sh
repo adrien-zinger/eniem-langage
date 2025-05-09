@@ -12,3 +12,7 @@ echo -e "--- add --- \nOutput:"
 ./target/release/eniem tests/add.n
 echo -e "--- add mult --- \nOutput:"
 ./target/release/eniem tests/add_mult.n
+echo -e "--- identity --- \nOutput:"
+./target/release/eniem tests/identity.n
+echo -e "--- assignation 1 (world expected) --- \nOutput:"
+./target/release/eniem tests/var_assignation.n

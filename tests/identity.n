@@ -1,0 +1,6 @@
+let identity = (var) { printf!("real identity\n"); var }
+let a = 0
+await let b = identity(a)
+
+identity = (var) { printf!("fake identity\n"); 0 }
+a = identity(a)

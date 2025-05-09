@@ -1,0 +1,5 @@
+let foo = "hello"
+await {
+	foo = "world"
+}
+printf!("%s\n", foo)
