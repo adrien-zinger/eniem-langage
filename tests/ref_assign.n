@@ -1,0 +1,6 @@
+let a = "hello"
+await let b = "world"
+await a = b
+printf!("%s\n", a)
+b = "hi"
+printf!("%s\n", a)
