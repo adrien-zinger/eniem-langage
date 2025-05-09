@@ -267,8 +267,6 @@ impl Interpreter {
         }
     }
 
-    
-
     /// Decrement scope len because we complete a Job and call nexts jobs.
     fn complete_job(&self, job: Job) {
         if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
