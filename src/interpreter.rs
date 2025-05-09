@@ -218,6 +218,7 @@ impl Interpreter {
             let blocking;
             let mut job = match &expr.inner {
                 EExpression::Statement(input) => {
+                    debug!("schedule statement");
                     blocking = input.is_blocking();
                     Job {
                         inner: EJob::Expression(expr.clone()),
@@ -801,17 +802,21 @@ impl Interpreter {
                         }
                         EStatement::Copy(_v) => todo!(),
                         EStatement::Ref(v) => {
+                            debug!("process job with single reference {:?}", v);
                             if latest {
                                 if let Some(val) = job.scope.memory.find(v, &job) {
+                                    debug!("store value {:?}", val);
                                     let boxed = Box::new(val);
                                     job.scope
                                         .value
                                         .store(Box::into_raw(boxed), Ordering::SeqCst);
                                 } else {
+                                    debug!("reschedule because reference not found");
                                     self.schedule(job);
                                     return;
                                 }
                             }
+                            debug!("job complete");
                             self.complete_job(job);
                         }
                         EStatement::Function(v) => {
@@ -962,7 +967,6 @@ impl Interpreter {
                         .expect("abstract interpretation must have function call tracking");
                     let res = {
                         let fc = &mut fc.lock().unwrap();
-                        debug!("fc locked");
                         #[cfg(feature = "debug_interpreter")]
                         let id = fc.id.clone();
                         for (name, ty) in fc.inputs.iter_mut() {
@@ -989,6 +993,8 @@ impl Interpreter {
                         self.schedule(job);
                         return;
                     }
+
+                    debug!("abstract interpreter, function has all variable ready");
 
                     let fc = &mut fc.lock().unwrap();
                     // All input are ready, check if we already resolved the function
@@ -1068,13 +1074,22 @@ impl Interpreter {
                                 checks += 1;
                                 let scope_id = self.new_id();
                                 let memory = Arc::new(Memory::default());
-                                // Write input in memory.
-                                for (input_id, variable) in inputs {
-                                    let key = format!("{}::{}", input_id, scope_id);
+                                // Write input in memory. Issue: captured variables
+                                // are badly named. In addition, we must take into
+                                // account calls with differents inputs length.
+                                for ((_input_id, variable), arg) in
+                                    inputs.iter().zip(other.args.iter())
+                                {
+                                    let key = format!("{}::{}", arg, scope_id);
+                                    debug!("write variable {key}, {:?}", variable);
                                     memory.abstr_write(key, variable.clone());
                                 }
                                 let boxed = Box::new(memory::abstract_uninit());
                                 let value = Arc::new(AtomicPtr::new(Box::into_raw(boxed)));
+                                // Create a new function call from `other`
+                                debug!("new function call id: {}", other.id);
+                                debug!("new function call inputs given: {:#?}", inputs);
+                                debug!("function expected inputs: {:#?}", other.args);
                                 let fc = Arc::new(Mutex::new(FunctionCall {
                                     id: other.id.clone(),
                                     inputs: inputs.clone(),
