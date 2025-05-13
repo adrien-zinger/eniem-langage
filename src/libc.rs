@@ -6,22 +6,22 @@ use std::ffi::CString;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::memory::{self, AbstractVariable, Variable};
+use crate::memory::{self, AbstractVariable, BoxVariable, Variable};
 
 extern "C" {
     // static mut stdout: *mut llibc::FILE;
 }
 
-pub fn abstract_atoi(arg: Arc<Variable>) -> Result<Arc<Variable>, String> {
-    match &*arg {
+pub fn abstract_atoi(arg: BoxVariable) -> Result<BoxVariable, String> {
+    match &*arg.load() {
         Variable::String(_) => Ok(memory::abstract_number()),
         Variable::Abstract(AbstractVariable::String) => Ok(memory::abstract_number()),
         _ => Err("atoi expect a string as input".to_string()),
     }
 }
 
-pub fn atoi(arg: Arc<Variable>) -> Arc<Variable> {
-    match &*arg {
+pub fn atoi(arg: BoxVariable) -> BoxVariable {
+    match &*arg.load() {
         Variable::String(s) => {
             let s = s.lock().unwrap().clone();
             let s = CString::new(s).unwrap();
@@ -46,12 +46,12 @@ A lock-free mechanism is preferable.
 */
 
 /// Bind to libc printf function
-pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
+pub fn builtin_printf(args: &[BoxVariable]) -> i32 {
     // rust interpreter can't match variadics. Just 1 argument
     // is accepted right now.
     match args.len() {
         1 => {
-            let string = match &*args[0] {
+            let string = match &*args[0].load() {
                 Variable::String(string) => string.lock().unwrap().clone(),
                 _ => {
                     unreachable!("not managed");
@@ -61,7 +61,7 @@ pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
             unsafe { printf(s.as_ptr()) }
         }
         2 => {
-            let string = match &*args[0] {
+            let string = match &*args[0].load() {
                 Variable::String(string) => string.lock().unwrap().clone(),
                 _ => {
                     unreachable!("not managed");
@@ -69,7 +69,7 @@ pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
             };
             let s = CString::new(string).unwrap();
             unsafe {
-                match &*args[1] {
+                match &*args[1].load() {
                     Variable::String(string) => {
                         let cstring = CString::new(string.lock().unwrap().clone()).unwrap();
                         printf(s.as_ptr(), cstring.as_ptr())

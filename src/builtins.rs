@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crate::memory::{self, *};
 use std::sync::atomic::Ordering;
 
-pub fn abstract_i32_add(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Variable>, String> {
-    match (&*a, &*b) {
+pub fn abstract_i32_add(a: BoxVariable, b: BoxVariable) -> Result<BoxVariable, String> {
+    match (&*a.load(), &*b.load()) {
         (
             Variable::Abstract(AbstractVariable::Number),
             Variable::Abstract(AbstractVariable::Number),
@@ -13,17 +13,17 @@ pub fn abstract_i32_add(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Variab
     }
 }
 
-pub fn i32_add(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
-    match (&*a, &*b) {
+pub fn i32_add(a: BoxVariable, b: BoxVariable) -> BoxVariable {
+    match (&*a.load(), &*b.load()) {
         (Variable::Number(a), Variable::Number(b)) => {
             memory::number(a.load(Ordering::SeqCst) + b.load(Ordering::SeqCst))
         }
-        _ => unreachable!("{:?} {:?}", a, b),
+        _ => unreachable!("{:?} {:?}", a.load(), b.load()),
     }
 }
 
-pub fn abstract_i32_mult(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Variable>, String> {
-    match (&*a, &*b) {
+pub fn abstract_i32_mult(a: BoxVariable, b: BoxVariable) -> Result<BoxVariable, String> {
+    match (&*a.load(), &*b.load()) {
         (
             Variable::Abstract(AbstractVariable::Number),
             Variable::Abstract(AbstractVariable::Number),
@@ -32,8 +32,8 @@ pub fn abstract_i32_mult(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Varia
     }
 }
 
-pub fn i32_mult(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
-    match (&*a, &*b) {
+pub fn i32_mult(a: BoxVariable, b: BoxVariable) -> BoxVariable {
+    match (&*a.load(), &*b.load()) {
         (Variable::Number(a), Variable::Number(b)) => {
             memory::number(a.load(Ordering::SeqCst) * b.load(Ordering::SeqCst))
         }

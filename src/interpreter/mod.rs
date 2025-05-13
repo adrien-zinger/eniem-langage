@@ -8,7 +8,7 @@ use crate::libc::*;
 use crate::memory::{self, *};
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod assignation;
@@ -26,9 +26,9 @@ struct FunctionCall {
     /// Function ID
     id: String,
     /// Variable inputs
-    inputs: Vec<(String, Arc<Variable>)>,
+    inputs: Vec<(String, BoxVariable)>,
     /// Variable output
-    output: Arc<Variable>,
+    output: BoxVariable,
 }
 
 #[derive(Clone)]
@@ -80,7 +80,7 @@ pub struct Scope {
     memory: Arc<Memory>,
 }
 
-type FunctionCalls = HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>;
+type FunctionCalls = HashMap<Vec<(String, BoxVariable)>, BoxVariable>;
 
 /// HashMap(key: Function ID, value: HashMap(key: Inputs, value: Output))
 /// with Inputs: [(variable ID wo scope ID, Variable)]
@@ -89,15 +89,11 @@ type FunctionCalls = HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>;
 struct FunctionCallsDictionary(HashMap<String, FunctionCalls>);
 
 impl FunctionCallsDictionary {
-    fn insert(
-        &mut self,
-        (id, inputs): (String, Vec<(String, Arc<Variable>)>),
-        output: Arc<Variable>,
-    ) {
+    fn insert(&mut self, (id, inputs): (String, Vec<(String, BoxVariable)>), output: BoxVariable) {
         self.0.entry(id).or_default().insert(inputs, output);
     }
 
-    fn get(&self, id: &str, inputs: &Vec<(String, Arc<Variable>)>) -> Option<Arc<Variable>> {
+    fn get(&self, id: &str, inputs: &Vec<(String, BoxVariable)>) -> Option<BoxVariable> {
         self.0.get(id)?.get(inputs).cloned()
     }
 
@@ -318,8 +314,7 @@ impl Interpreter {
                 debug!("create default scope value");
                 if self.is_abstract {
                     debug!("create default scope value (abstract setup)");
-                    let boxed = Box::new(memory::abstract_uninit());
-                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                    memory::abstract_uninit()
                 } else {
                     Default::default()
                 }
@@ -402,7 +397,7 @@ impl Interpreter {
 
         // From memory, get the function definition and the captured
         // variables (external references)
-        let (function, captures) = if let Variable::Function(function) = &*function {
+        let (function, captures) = if let Variable::Function(function) = &*function.load() {
             if let Ok(function) = function.lock() {
                 function.clone()
             } else {
@@ -495,8 +490,7 @@ impl Interpreter {
                 debug!("create default scope value");
                 if self.is_abstract {
                     debug!("create default scope value (abstract setup)");
-                    let boxed = Box::new(memory::abstract_uninit());
-                    Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                    memory::abstract_uninit()
                 } else {
                     Default::default()
                 }
@@ -549,9 +543,8 @@ impl Interpreter {
 
         // Define captured variables in the execution flow
         for (tag, val) in captures {
-            let ptr = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(val))));
             let job = Job {
-                inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr, vec![])),
+                inner: EJob::Write((format!("{}::{}", tag, scope.id), val, vec![])),
                 scope: scope.clone(),
                 next: None,
                 fc: None,
@@ -607,8 +600,7 @@ impl Interpreter {
                             let value = if latest {
                                 job.scope.value.clone()
                             } else if self.is_abstract {
-                                let boxed = Box::new(memory::abstract_uninit());
-                                Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+                                memory::abstract_uninit()
                             } else {
                                 Default::default()
                             };
@@ -643,15 +635,14 @@ impl Interpreter {
                         }
                         EStatement::Str(val) => {
                             if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_string())
+                                /* Issue Value Writing: Writing a value as string must be much more simple in that kind of case. We don't need to create a value, then taking what is inner and store in another part. Memory module should provide a "put" function for abstract and normal behaviour */
+                                let varbox = if self.is_abstract {
+                                    memory::abstract_string()
                                 } else {
-                                    Box::new(memory::string(val))
+                                    memory::string(val)
                                 };
                                 debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                                varbox.copy_in(&job.scope.value);
                             } else {
                                 debug!("dead string expression spoted");
                             }
@@ -659,15 +650,13 @@ impl Interpreter {
                         }
                         EStatement::Num(val) => {
                             if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_number())
+                                let varbox = if self.is_abstract {
+                                    memory::abstract_number()
                                 } else {
-                                    Box::new(memory::number(*val))
+                                    memory::number(*val)
                                 };
+                                varbox.copy_in(&job.scope.value);
                                 debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
                             } else {
                                 debug!("dead number expression spoted");
                             }
@@ -687,10 +676,7 @@ impl Interpreter {
                             if latest {
                                 if let Some(val) = job.scope.memory.find(v, &job) {
                                     debug!("store value {:?}", val);
-                                    let boxed = Box::new(val);
-                                    job.scope
-                                        .value
-                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
+                                    val.copy_in(&job.scope.value);
                                 } else {
                                     debug!("reschedule because reference not found");
                                     self.schedule(job);
@@ -712,10 +698,7 @@ impl Interpreter {
                                         return;
                                     }
                                 }
-                                let boxed = Box::new(memory::function(v.clone(), captures));
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                                memory::function(v.clone(), captures).copy_in(&job.scope.value)
                             } else {
                                 debug!("dead string expression spoted");
                             }
@@ -732,13 +715,12 @@ impl Interpreter {
                 }
             }
             EJob::Write((tag, value, decls)) => {
-                let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
                 debug!("EJob::Write {:?} into {}", value, tag);
                 if self.is_abstract {
                     if let Some(fc) = &job.fc {
                         let fc = &mut fc.lock().unwrap();
                         fc.output = value.clone();
-                        match &*value {
+                        match &*value.load() {
                             Variable::Abstract(_) => {}
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
@@ -749,9 +731,9 @@ impl Interpreter {
                             .unwrap()
                             .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
                     }
-                    job.scope.memory.abstr_write(tag.clone(), value);
+                    job.scope.memory.abstr_write(tag.clone(), value.clone());
                 } else {
-                    job.scope.memory.write(tag.clone(), value);
+                    job.scope.memory.write(tag.clone(), value.clone());
                 }
                 self.schedule(Job {
                     inner: EJob::Delete(decls.clone()),
@@ -782,44 +764,39 @@ impl Interpreter {
                 let res = if self.is_abstract {
                     // todo check parameters too.
                     match call.std {
-                        StdFunction::Atoi => Box::new(abstract_atoi(params[0].clone()).unwrap()),
+                        StdFunction::Atoi => abstract_atoi(params[0].clone()).unwrap(),
                         StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => Box::new(
-                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::I32mult => Box::new(
-                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::Printf => Box::new(memory::abstract_number()),
+                        StdFunction::I32add => {
+                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap()
+                        }
+                        StdFunction::I32mult => {
+                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap()
+                        }
+                        StdFunction::Printf => memory::abstract_number(),
                         _ => todo!(),
                     }
                 } else {
                     match call.std {
-                        StdFunction::Atoi => Box::new(atoi(params[0].clone())),
+                        StdFunction::Atoi => atoi(params[0].clone()),
                         StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => {
-                            Box::new(i32_add(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::I32mult => {
-                            Box::new(i32_mult(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::Printf => Box::new(memory::number(builtin_printf(&params))),
+                        StdFunction::I32add => i32_add(params[0].clone(), params[1].clone()),
+                        StdFunction::I32mult => i32_mult(params[0].clone(), params[1].clone()),
+                        StdFunction::Printf => memory::number(builtin_printf(&params)),
                         _ => todo!(),
                     }
                 };
                 debug!("set scope value (str expr)");
-                job.scope.value.store(Box::into_raw(res), Ordering::SeqCst);
+                res.copy_in(&job.scope.value);
                 self.complete_job(job);
             }
-            EJob::Empty((value, decls)) => {
+            EJob::Empty((varbox, decls)) => {
                 if self.is_abstract {
                     if let Some(fc) = &job.fc {
                         debug!("get value (fc + abstract + empty)");
-                        let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
                         debug!("got value (fc + abstract + empty)");
                         let fc = &mut fc.lock().unwrap();
-                        fc.output = value.clone();
-                        match &*value {
+                        fc.output = varbox.clone();
+                        match &*varbox.load() {
                             Variable::Abstract(_) => {}
                             Variable::Function(_) => {}
                             _ => panic!("non abstract type"),
@@ -851,7 +828,7 @@ impl Interpreter {
                         #[cfg(feature = "debug_interpreter")]
                         let id = fc.id.clone();
                         for (name, ty) in fc.inputs.iter_mut() {
-                            if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
+                            if let Variable::Abstract(AbstractVariable::Uninit) = *ty.load() {
                                 debug!("abstract call of {} waiting for {}", id, name);
                                 if let Some(v) = job.scope.memory.find(name, &job) {
                                     debug!("{} found", name);
@@ -863,7 +840,7 @@ impl Interpreter {
                         }
                         debug!("fc inputs {:?}", fc.inputs);
                         fc.inputs.iter().any(|(_, ty)| {
-                            matches!(**ty, Variable::Abstract(AbstractVariable::Uninit))
+                            matches!(*ty.load(), Variable::Abstract(AbstractVariable::Uninit))
                         })
                     };
                     if res {
@@ -887,10 +864,7 @@ impl Interpreter {
                         .get(&fc.id, &fc.inputs)
                     {
                         debug!("skip function call because already checked");
-                        let boxed = Box::new(output.clone());
-                        job.scope
-                            .value
-                            .store(Box::into_raw(boxed), Ordering::SeqCst);
+                        output.copy_in(&job.scope.value);
                         self.complete_job(job);
                     } else {
                         debug!("execute function expression: {:?}", exprs);
@@ -965,8 +939,7 @@ impl Interpreter {
                                     debug!("write variable {key}, {:?}", variable);
                                     memory.abstr_write(key, variable.clone());
                                 }
-                                let boxed = Box::new(memory::abstract_uninit());
-                                let value = Arc::new(AtomicPtr::new(Box::into_raw(boxed)));
+                                let varbox = memory::abstract_uninit();
                                 // Create a new function call from `other`
                                 debug!("new function call id: {}", other.id);
                                 debug!("new function call inputs given: {:#?}", inputs);
@@ -978,7 +951,7 @@ impl Interpreter {
                                 }));
                                 // Create Job that would write the return type eventually.
                                 let res_job = Job {
-                                    inner: EJob::Empty((value.clone(), vec![])),
+                                    inner: EJob::Empty((varbox.clone(), vec![])),
                                     next: None,
                                     scope: base_scope.clone(),
                                     fc: Some(fc.clone()),
@@ -987,7 +960,7 @@ impl Interpreter {
                                     id: scope_id,
                                     job: Some(res_job),
                                     len: AtomicU64::new(1),
-                                    value,
+                                    value: varbox,
                                     memory,
                                 });
                                 // Create the Job containing the function's expressions.
