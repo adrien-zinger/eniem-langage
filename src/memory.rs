@@ -5,24 +5,6 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI32, AtomicPtr};
 use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
 
-/*
-    Reference Issue: The modification of the right part in an assignment
-    should modify the left part. The issue might be huge if the text
-    assignation is considered as a reference too. But fortunally, I don't
-    think so.
-
-    Example of ref_assign.n:
-
-    ```
-    let a = "hello"
-    await let b = "world"
-    await a = b
-    await { printf!("%s\n", a) }
-    await b = "hi"
-    printf!("%s\n", a) // expected 'hi'
-    ```
-*/
-
 macro_rules! debug {
     ($($rest:tt)*) => {
         #[cfg(feature = "debug_memory")]
