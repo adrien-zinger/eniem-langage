@@ -72,7 +72,7 @@ impl Interpreter {
     /// See `Interpreter::complete_job` in common.rs.
     fn str(&self, value: &String, assign: &Assignation, job: Job) {
         let key = format!("{}::{}", assign.var, job.scope.id);
-        debug!("assign a string to {key}, {val}");
+        debug!("assign a string to {key}, {value}");
         if self.is_abstract {
             let varbox = memory::abstract_string();
             job.scope.memory.abstr_write(key, varbox);
