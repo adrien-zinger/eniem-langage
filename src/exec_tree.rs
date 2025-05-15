@@ -95,10 +95,18 @@ pub struct Expression {
 }
 
 #[derive(Debug, Clone)]
+/// Assignation or declaration description.
 pub struct Assignation {
     pub block_on: bool,
+    /// Variable name. At this point, the name is unique.
     pub var: String,
+    /// Right part of the assignation.
     pub to_assign: Statement,
+    /// Field true if the variable to assign has to be
+    /// replaced by the new variable pointer, or if the
+    /// variable has to be written and modified.
+    /// See parser: `parser::assignation`
+    pub modify: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +177,7 @@ impl Scope2ETree {
                 val.info.scope.name, val.info.line, val.info.column, val.info.name
             ),
             to_assign: self.statement(val.to_assign),
+            modify: val.modify,
         }
     }
 

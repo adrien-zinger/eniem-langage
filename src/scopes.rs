@@ -122,6 +122,7 @@ pub struct Assignation {
     pub info: VarInfo,
     pub to_assign: Statement,
     pub is_ref: Option<VarInfo>,
+    pub modify: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +207,7 @@ impl Scopes {
             var,
             to_assign,
             is_ref,
+            modify: assign.modify,
         }
     }
 

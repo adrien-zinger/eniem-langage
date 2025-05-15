@@ -81,6 +81,7 @@ pub struct Assignation<'a> {
     pub block_on: bool,
     pub var: String,
     pub to_assign: Statement<'a>,
+    pub modify: bool,
 }
 
 #[derive(Debug, PartialEq)]

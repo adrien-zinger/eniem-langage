@@ -45,7 +45,7 @@ pub enum AbstractVariable {
 }
 
 /// Variable tag and a reference to that variable.
-type Inputs = Vec<(String, BoxVariable)>;
+type Inputs = Vec<(String, Arc<Variable>)>;
 
 #[derive(Debug)]
 pub enum Variable {
@@ -60,20 +60,6 @@ pub enum Variable {
     Abstract(AbstractVariable),
     /// Signed number on 32 bit is default Number type.
     Number(AtomicI32),
-}
-
-impl PartialEq for BoxVariable {
-    fn eq(&self, other: &Self) -> bool {
-        self.load() == other.load()
-    }
-}
-
-impl Eq for BoxVariable {}
-
-impl Hash for BoxVariable {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.load().hash(state)
-    }
 }
 
 impl PartialEq for Variable {
@@ -106,26 +92,11 @@ impl Default for Variable {
     }
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct BoxVariable(pub Arc<AtomicPtr<Arc<Variable>>>);
-
-impl BoxVariable {
-    /// Put a copy of Self in target. Increment the atomic counter.
-    pub fn copy_in(&self, target: &BoxVariable) {
-        target
-            .0
-            .store(self.0.load(Ordering::SeqCst).clone(), Ordering::SeqCst)
-    }
-
-    /// Load a pointer to the inner pointer. Increment the atomic counter.
-    pub fn load(&self) -> Arc<Variable> {
-        unsafe { (*self.0.load(Ordering::SeqCst)).clone() }
-    }
-}
+pub type BoxVariable = Arc<AtomicPtr<Arc<Variable>>>;
 
 #[derive(Default)]
 pub struct Memory {
-    pub map: RwLock<HashMap<String, BoxVariable>>,
+    pub map: RwLock<HashMap<String, Arc<Variable>>>,
 }
 
 /*
@@ -168,7 +139,7 @@ impl Memory {
             return Default::default();
         }
         if let Ok(m) = &mut self.map.write() {
-            let mut map = HashMap::<String, BoxVariable>::new();
+            let mut map = HashMap::<String, Arc<Variable>>::new();
             for key in refs {
                 debug!(
                     "forward {} in new memory, from scope {} to scope {}",
@@ -187,14 +158,14 @@ impl Memory {
     /// Look for a variable in memory. The variable is forced to be in
     /// the current scope job or in a upper scope. If there is no variable
     /// found, it means that the variable is still not initialized.
-    pub fn find(&self, var: &str, job: &Job) -> Option<BoxVariable> {
+    pub fn find(&self, var: &str, job: &Job) -> Option<Arc<Variable>> {
         let mut scope = &job.scope;
         loop {
             let key = format!("{}::{}", var, scope.id);
             debug!("look for {}", key);
             if let Ok(vars) = self.map.read() {
                 if let Some(varbox) = vars.get(&key) {
-                    match &*varbox.load() {
+                    match &**varbox {
                         Variable::Empty => return None,
                         _ => return Some(varbox.clone()),
                     }
@@ -208,10 +179,17 @@ impl Memory {
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<BoxVariable> {
+    /// Look into the local memory map for a variable with `key` identifier.
+    /// That function can be used by an interpreter when it is sure 100% that
+    /// the required variable is at `key` index.
+    ///
+    /// Return None if the variable isn't found. Which can be when the variable
+    /// still isn't initialized in a good behavior, or when the caller require a
+    /// wrong key in the wrong memory, the last case is a terrible issue.
+    pub fn get(&self, key: &str) -> Option<Arc<Variable>> {
         if let Ok(vars) = self.map.read() {
             if let Some(varbox) = vars.get(key) {
-                match &*varbox.load() {
+                match &**varbox {
                     Variable::Empty => return None,
                     _ => return Some(varbox.clone()),
                 }
@@ -220,23 +198,72 @@ impl Memory {
         None
     }
 
-    /// Write or insert variable into memory
-    pub fn write(&self, key: String, value: BoxVariable) {
+    /// Take a `value` input and clone his content to insert it into
+    /// the `self` box at `key` index. This is call when a user want to mutate a
+    /// variable with `b := a` syntax (even with `b := "hello"`). A
+    /// variable have to be declared as mutable before.
+    pub fn write_copy(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
             mem.entry(key)
-                .and_modify(|varbox: &mut BoxVariable| value.copy_in(varbox))
+                .and_modify(|varbox| match &**varbox {
+                    Variable::String(old_value) => {
+                        if let Variable::String(new_value) = &*value {
+                            *old_value.lock().unwrap() = new_value.lock().unwrap().clone();
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    Variable::Number(old_value) => {
+                        if let Variable::Number(new_value) = &*value {
+                            let new_value_load = new_value.load(Ordering::SeqCst);
+                            old_value.store(new_value_load, Ordering::SeqCst);
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    Variable::Function(old_value) => {
+                        if let Variable::Function(new_value) = &*value {
+                            *old_value.lock().unwrap() = new_value.lock().unwrap().clone();
+                        } else {
+                            unreachable!("protected")
+                        }
+                    }
+                    _ => todo!("var assignation"),
+                })
                 .or_insert(value);
         } else {
             panic!("failed to access memory");
         }
     }
 
-    pub fn abstr_write(&self, key: String, value: BoxVariable) {
+    /// Replace the box at index `key` by `value`.
+    /// Use case of `a = b` or `a = "hello"`.
+    ///
+    /// If the index `key` don't exist, create one, otherwise, there is
+    /// a replace behavior and the previous box may be droped. (replace
+    /// a variable previously captured protect to be droped)
+    ///
+    /// Note:
+    ///
+    /// The variable `a` in the example bellow is shadowed and don't
+    /// need to be mutable. If the user is shadowing a variable in an
+    /// other scope of the declaration of a, the compiler should
+    /// send a recommandation to the user "You should use the shadow
+    /// keyword here"
+    pub fn write(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
-            match &*value.load() {
+            mem.insert(key, value);
+        } else {
+            panic!("failed to access memory");
+        }
+    }
+
+    pub fn abstr_write(&self, key: String, value: Arc<Variable>) {
+        if let Ok(mem) = &mut self.map.write() {
+            match &*value {
                 Variable::Abstract(AbstractVariable::String) => {
                     if let Some(v) = mem.get(&key) {
-                        if let Variable::Abstract(AbstractVariable::String) = *v.load() {
+                        if let Variable::Abstract(AbstractVariable::String) = **v {
                         } else {
                             panic!("unexpected type");
                         }
@@ -245,7 +272,7 @@ impl Memory {
                 Variable::Function(val) => {
                     if let Some(v) = mem.get(&key) {
                         let val = &mut val.lock().unwrap().0;
-                        if let Variable::Function(v) = &*v.load() {
+                        if let Variable::Function(v) = &**v {
                             val.same_as
                                 .lock()
                                 .unwrap()
@@ -271,32 +298,26 @@ impl Memory {
     }
 }
 
-pub fn string(val: &str) -> BoxVariable {
-    todo!()
-    // Arc::new(Variable::String(Mutex::new(val.to_string())))
+pub fn string(val: &str) -> Arc<Variable> {
+    Arc::new(Variable::String(Mutex::new(val.to_string())))
 }
 
-pub fn number(val: i32) -> BoxVariable {
-    todo!()
-    // Arc::new(Variable::Number(AtomicI32::new(val)))
+pub fn number(val: i32) -> Arc<Variable> {
+    Arc::new(Variable::Number(AtomicI32::new(val)))
 }
 
-pub fn abstract_string() -> BoxVariable {
-    todo!()
-    // Arc::new(Variable::Abstract(AbstractVariable::String))
+pub fn abstract_string() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::String))
 }
 
-pub fn abstract_number() -> BoxVariable {
-    todo!()
-    //Arc::new(Variable::Abstract(AbstractVariable::Number))
+pub fn abstract_number() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::Number))
 }
 
-pub fn abstract_uninit() -> BoxVariable {
-    todo!()
-    // Arc::new(Variable::Abstract(AbstractVariable::Uninit))
+pub fn abstract_uninit() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::Uninit))
 }
 
-pub fn function(val: Function, captures: Vec<(String, BoxVariable)>) -> BoxVariable {
-    todo!()
-    // Arc::new(Variable::Function(Mutex::new((val, captures))))
+pub fn function(val: Function, captures: Vec<(String, Arc<Variable>)>) -> Arc<Variable> {
+    Arc::new(Variable::Function(Mutex::new((val, captures))))
 }

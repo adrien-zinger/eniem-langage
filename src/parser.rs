@@ -18,6 +18,11 @@ macro_rules! debug {
     }
 }
 
+/// Space between tokens, which can content comments
+fn spacing(s: Span) -> IResult<Span, ()> {
+    todo!()
+}
+
 fn extension(s: Span) -> IResult<Span, u8> {
     let (s, _) = multispace0(s)?;
     if let Ok((s, _)) = tag::<&str, nom_locate::LocatedSpan<&str>, ()>("(")(s) {
@@ -302,6 +307,7 @@ fn declaration(s: Span) -> IResult<Span, Expression> {
         block_on: block_on.is_some(),
         var: var.to_string(),
         to_assign,
+        modify: true,
     };
 
     debug!("return declaration");
@@ -332,6 +338,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
     let (s, var) = variable_name(s)?;
+    let (s, modify) = opt(delimited(multispace0, tag(":"), multispace0)).parse(s)?;
     let (s, _) = tag("=")(s)?;
     debug!("assignation");
     let (s, to_assign) = delimited(multispace0, statement, multispace0).parse(s)?;
@@ -340,6 +347,7 @@ fn assignation(s: Span) -> IResult<Span, Expression> {
         block_on: block_on.is_some(),
         var: var.to_string(),
         to_assign,
+        modify: modify.is_some(),
     };
     let res = Expression {
         pos,

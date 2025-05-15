@@ -47,6 +47,7 @@ impl Interpreter {
                 format!("{}::{}", assign.var, job.scope.id),
                 value.clone(),
                 decls,
+                assign.modify,
             )),
             scope: job.scope,
             next: job.next,
@@ -77,7 +78,11 @@ impl Interpreter {
             job.scope.memory.abstr_write(key, varbox);
         } else {
             let varbox = memory::string(value);
-            job.scope.memory.write(key, varbox);
+            if assign.modify {
+                job.scope.memory.write_copy(key, varbox);
+            } else {
+                job.scope.memory.write(key, varbox);
+            }
         }
         self.complete_job(job);
     }
@@ -92,7 +97,11 @@ impl Interpreter {
             job.scope.memory.abstr_write(key, varbox);
         } else {
             let varbox = memory::number(value);
-            job.scope.memory.write(key, varbox);
+            if assign.modify {
+                job.scope.memory.write_copy(key, varbox);
+            } else {
+                job.scope.memory.write(key, varbox);
+            }
         }
         self.complete_job(job);
     }
@@ -146,6 +155,10 @@ impl Interpreter {
             job.scope
                 .memory
                 .abstr_write(key, memory::function(input.clone(), captures));
+        } else if assign.modify {
+            job.scope
+                .memory
+                .write_copy(key, memory::function(input.clone(), captures));
         } else {
             job.scope
                 .memory
@@ -159,14 +172,14 @@ impl Interpreter {
     fn call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
-        self.call_statement(input, job, false, Some(id))
+        self.call_statement(input, job, false, Some(id), assign.modify)
     }
 
     /// Same as call but with builtins and libc bindings. See alse `call`.
     fn std_call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute StdCall statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
-        self.std_call_statement(input, job, false, Some(id))
+        self.std_call_statement(input, job, false, Some(id), assign.modify)
     }
 
     /// Interprets assignation of a ref to another.
@@ -194,6 +207,8 @@ impl Interpreter {
         debug!("assign {} from {c}, {:?}", assign.var, val);
         if self.is_abstract {
             job.scope.memory.abstr_write(key, val);
+        } else if assign.modify {
+            job.scope.memory.write_copy(key, val);
         } else {
             job.scope.memory.write(key, val);
         }
