@@ -1,0 +1,15 @@
+
+await let b = {
+	let d = 0
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	await { d = i32_add!(d, 1) }
+	printf!("%d\n", d)
+}
+
+printf!("end\n")

@@ -195,7 +195,7 @@ impl Interpreter {
     /// the right part after a such action will modify the left part as a side
     /// effect. See `crate::memory` module.
     fn ref_statement(&self, input: &String, assign: &Assignation, job: Job) {
-        debug!("try to assign {} from {c}", assign.var);
+        debug!("try to assign {} from {input}", assign.var);
         let right_part = job.scope.memory.find(input, &job);
         if right_part.is_none() {
             debug!("retry to assign {} later, {input} not found", assign.var);
@@ -204,7 +204,7 @@ impl Interpreter {
         }
         let val = right_part.unwrap();
         let key = format!("{}::{}", assign.var, job.scope.id);
-        debug!("assign {} from {c}, {:?}", assign.var, val);
+        debug!("assign {} from {input}, {:?}", assign.var, val);
         if self.is_abstract {
             job.scope.memory.abstr_write(key, val);
         } else if assign.modify {
@@ -244,4 +244,39 @@ impl Interpreter {
             EStatement::Ref(input) => self.ref_statement(input, assign, job),
         }
     }
+}
+
+#[test]
+fn test_assignation_ref() {
+    let interpreter = Interpreter::default();
+    let memory = Arc::new(Memory::default());
+    let varbox = memory::string("hello world");
+    memory.write("foo::1".into(), varbox);
+    let scope = Arc::new(Scope {
+        id: 1,
+        job: None,
+        len: AtomicU64::new(1),
+        memory: memory.clone(),
+        value: Default::default(),
+    });
+    let assignation = Assignation {
+        block_on: false,
+        var: "bar".into(),
+        to_assign: Statement {
+            inner: EStatement::Ref("foo".into()),
+            refs: Default::default(),
+        },
+        modify: false,
+    };
+    let job = Job {
+        inner: EJob::Expression(Expression {
+            inner: EExpression::Assignation(assignation.clone()),
+            latest: true,
+        }),
+        next: None,
+        fc: None,
+        scope: scope.clone(),
+    };
+    interpreter.assignation(&assignation, job.clone());
+    assert!(memory.find("bar", &job).is_some());
 }

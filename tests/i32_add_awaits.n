@@ -1,0 +1,6 @@
+let v = 0
+await v = i32_add!(v, 1)
+await v = i32_add!(v, 1)
+await v = i32_add!(v, 1)
+await v = i32_add!(v, 1)
+printf!("%d\n", v);

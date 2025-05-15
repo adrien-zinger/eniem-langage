@@ -2,5 +2,6 @@ let a = "hello"
 await let b = "world"
 await a = b
 printf!("%s\n", a)
-b = "hi"
+b := "hi"
 printf!("%s\n", a)
+printf!("%s\n", b)

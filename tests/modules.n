@@ -1,0 +1,8 @@
+mod foo {
+	let one = "hello world"
+}
+
+mod bar {
+	use foo::one
+}
+

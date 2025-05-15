@@ -221,7 +221,7 @@ fn test_compound_statement() {
     compound_statement(Span::new("{ let a = (){ \"bar\" } a }")).unwrap();
 }
 
-fn variable_name(s: Span) -> IResult<Span, String> {
+pub fn variable_name(s: Span) -> IResult<Span, String> {
     let (s, _) = multispace0(s)?;
     let (s, varname) = recognize(pair(
         verify(anychar, |&c| c.is_lowercase()),
@@ -243,7 +243,7 @@ fn test_variable_name() {
     assert!(variable_name(Span::new("_32foo")).is_err());
 }
 
-fn function_statement(s: Span) -> IResult<Span, Statement> {
+pub fn function_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter function");
     let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
@@ -292,7 +292,7 @@ fn test_function_statement() {
 }
 
 /// Parse function declaration
-fn declaration(s: Span) -> IResult<Span, Expression> {
+pub fn declaration(s: Span) -> IResult<Span, Expression> {
     debug!("enter declaration {}", s.fragment());
     let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
@@ -333,7 +333,7 @@ fn test_declaration() {
     assert!(declaration(Span::new("({}")).is_err());
 }
 
-fn assignation(s: Span) -> IResult<Span, Expression> {
+pub fn assignation(s: Span) -> IResult<Span, Expression> {
     let (s, _) = multispace0(s)?;
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace0)).parse(s)?;
@@ -368,7 +368,7 @@ fn test_assignation() {
     assert!(assignation(Span::new("a = -12")).is_ok());
 }
 
-fn param_statement(s: Span) -> IResult<Span, Statement> {
+pub fn param_statement(s: Span) -> IResult<Span, Statement> {
     alt((
         function_statement,
         compound_statement,
@@ -382,7 +382,7 @@ fn param_statement(s: Span) -> IResult<Span, Statement> {
     .parse(s)
 }
 
-fn call_statement(s: Span) -> IResult<Span, Statement> {
+pub fn call_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter call {}", s.fragment());
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(multispace0, tag("await"), multispace1)).parse(s)?;
@@ -698,6 +698,7 @@ fn atest_assignation() {
                     },
                 }),
             },
+            modify: false,
         }),
     };
     assert!(a.is_ok());

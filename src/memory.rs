@@ -77,6 +77,7 @@ impl Default for Variable {
 pub type BoxVariable = Arc<AtomicPtr<Arc<Variable>>>;
 
 #[derive(Default)]
+#[cfg_attr(test, derive(Debug))]
 pub struct Memory {
     pub map: RwLock<HashMap<String, Arc<Variable>>>,
 }

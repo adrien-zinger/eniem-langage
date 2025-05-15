@@ -1,0 +1,10 @@
+let v = 0
+await {
+	v = i32_add!(v, 1)
+	printf!("--------   v is probably 0: %d\n", v)
+}
+await {
+	printf!("--------   after that is 1: %d\n", v)
+}
+await v = i32_add!(v, 1)
+printf!("finally v is 2: %d\n", v)

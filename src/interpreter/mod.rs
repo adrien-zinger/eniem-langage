@@ -271,7 +271,13 @@ impl Interpreter {
     /// Decrement scope len because we complete a Job and call nexts jobs.
     fn complete_job(&self, job: Job) {
         if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
-            self.schedule(job.scope.job.clone().unwrap());
+            if let Some(job) = &job.scope.job {
+                // schedule parent (Write or Empty)
+                self.schedule(job.clone());
+            } else {
+                #[cfg(not(test))] // tolerance in unit tests
+                unreachable!("impossible to reach a scope complete with no parent")
+            }
         }
         if let Some(EJob::Expressions(exprs)) = job.next {
             self.expressions(&exprs, job.scope);
