@@ -1,7 +1,17 @@
 let a = "hello"
 await let b = "world"
+
+/***
+Assign b to a, a is now the same object as b 
+Also await that the assignation is done before the rest.
+**/
 await a = b
+
+
 printf!("%s\n", a)
+
+/* Write the value of "hi" into b (and into a) */
 b := "hi"
+
 printf!("%s\n", a)
 printf!("%s\n", b)

@@ -1,1 +1,2 @@
+/* Just print hello world */
 printf!("hello world\n")

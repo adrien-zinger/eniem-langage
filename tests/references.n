@@ -1,3 +1,4 @@
+/* Function returning a reference to b ("hello world") */
 let a = {
 	let b = "hello world\n"
 	(){ b }
