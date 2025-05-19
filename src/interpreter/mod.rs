@@ -32,6 +32,13 @@ pub(super) struct Scope {
     memory: Arc<Memory>,
 }
 
+impl Scope {
+    pub fn set_value(&self, var: Arc<Variable>) {
+        let boxed = Box::new(var);
+        self.value.store(Box::into_raw(boxed), Ordering::SeqCst);
+    }
+}
+
 /// Tracking function calls in abstract context.
 #[derive(Default, PartialEq, Eq, Hash)]
 struct FunctionCall {

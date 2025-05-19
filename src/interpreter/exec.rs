@@ -135,15 +135,12 @@ impl Interpreter {
     /// Same as `Interpreter::exec_num` but with a String.
     fn exec_str(&self, val: String, job: Job, latest: bool) {
         if latest {
-            let boxed = if self.is_abstract {
-                Box::new(memory::abstract_string())
-            } else {
-                Box::new(memory::string(&val))
-            };
             debug!("set scope value (str expr)");
-            job.scope
-                .value
-                .store(Box::into_raw(boxed), Ordering::SeqCst);
+            job.scope.set_value(if self.is_abstract {
+                memory::abstract_string()
+            } else {
+                memory::string(&val)
+            });
         } else {
             debug!("dead string expression spoted");
         }
@@ -164,15 +161,12 @@ impl Interpreter {
     /// The abstract interpreter will put an abstract number instead of the real `val`.
     fn exec_num(&self, val: i32, job: Job, latest: bool) {
         if latest {
-            let boxed = if self.is_abstract {
-                Box::new(memory::abstract_number())
-            } else {
-                Box::new(memory::number(val))
-            };
             debug!("set scope value (str expr)");
-            job.scope
-                .value
-                .store(Box::into_raw(boxed), Ordering::SeqCst);
+            job.scope.set_value(if self.is_abstract {
+                memory::abstract_number()
+            } else {
+                memory::number(val)
+            });
         } else {
             debug!("dead number expression spoted");
         }
@@ -185,10 +179,7 @@ impl Interpreter {
         if latest {
             if let Some(val) = job.scope.memory.find(ref_id, &job) {
                 debug!("store value {:?}", val);
-                let boxed = Box::new(val);
-                job.scope
-                    .value
-                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+                job.scope.set_value(val);
             } else {
                 debug!("reschedule because reference not found");
                 self.schedule(job);
@@ -213,10 +204,8 @@ impl Interpreter {
                     return;
                 }
             }
-            let boxed = Box::new(memory::function(function.clone(), captures));
             job.scope
-                .value
-                .store(Box::into_raw(boxed), Ordering::SeqCst);
+                .set_value(memory::function(function.clone(), captures));
         } else {
             debug!("dead string expression spoted");
         }
@@ -315,33 +304,31 @@ impl Interpreter {
                 let res = if self.is_abstract {
                     // todo check parameters too.
                     match call.std {
-                        StdFunction::Atoi => Box::new(abstract_atoi(params[0].clone()).unwrap()),
+                        StdFunction::Atoi => abstract_atoi(params[0].clone()).unwrap(),
                         StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => Box::new(
-                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::I32mult => Box::new(
-                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::Printf => Box::new(memory::abstract_number()),
+                        StdFunction::I32add => {
+                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap()
+                        }
+
+                        StdFunction::I32mult => {
+                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap()
+                        }
+
+                        StdFunction::Printf => memory::abstract_number(),
                         _ => todo!(),
                     }
                 } else {
                     match call.std {
-                        StdFunction::Atoi => Box::new(atoi(params[0].clone())),
+                        StdFunction::Atoi => atoi(params[0].clone()),
                         StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => {
-                            Box::new(i32_add(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::I32mult => {
-                            Box::new(i32_mult(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::Printf => Box::new(memory::number(builtin_printf(&params))),
+                        StdFunction::I32add => i32_add(params[0].clone(), params[1].clone()),
+                        StdFunction::I32mult => i32_mult(params[0].clone(), params[1].clone()),
+                        StdFunction::Printf => memory::number(builtin_printf(&params)),
                         _ => todo!(),
                     }
                 };
                 debug!("set scope value (str expr)");
-                job.scope.value.store(Box::into_raw(res), Ordering::SeqCst);
+                job.scope.set_value(res);
                 self.complete_job(job);
             }
             EJob::Empty((value, decls)) => {
@@ -420,10 +407,7 @@ impl Interpreter {
                         .get(&fc.id, &fc.inputs)
                     {
                         debug!("skip function call because already checked");
-                        let boxed = Box::new(output.clone());
-                        job.scope
-                            .value
-                            .store(Box::into_raw(boxed), Ordering::SeqCst);
+                        job.scope.set_value(output.clone());
                         self.complete_job(job);
                     } else {
                         debug!("execute function expression: {:?}", exprs);
