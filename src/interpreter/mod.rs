@@ -12,12 +12,23 @@ use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod assignation;
+mod exec;
 
 macro_rules! debug {
     ($($rest:tt)*) => {
         #[cfg(feature = "debug_interpreter")]
         std::println!($($rest)*)
     }
+}
+
+pub(super) struct Scope {
+    pub id: u64,
+    len: AtomicU64,
+    value: BoxVariable,
+    /// Parent job (can be Write or Empty), this is filled on function call
+    /// and entering a compound statement.
+    pub job: Option<Job>,
+    memory: Arc<Memory>,
 }
 
 /// Tracking function calls in abstract context.
@@ -69,16 +80,6 @@ pub struct Job {
     /// or the main compound of a call (output) have a function
     /// call.
     fc: Option<Arc<Mutex<FunctionCall>>>,
-}
-
-pub struct Scope {
-    pub id: u64,
-    len: AtomicU64,
-    value: BoxVariable,
-    /// Parent job (can be Write or Empty), this is filled on function call
-    /// and entering a compound statement.
-    pub job: Option<Job>,
-    memory: Arc<Memory>,
 }
 
 type FunctionCalls = HashMap<Vec<(String, Arc<Variable>)>, Arc<Variable>>;
@@ -164,49 +165,9 @@ impl Interpreter {
             }),
         );
 
+        while self.pop() {}
         if self.is_abstract {
-            loop {
-                let job = if let Ok(jobs) = &mut self.jobs.lock() {
-                    if let Some(job) = jobs.pop_back() {
-                        job.clone()
-                    } else {
-                        break;
-                    }
-                } else {
-                    continue;
-                };
-                self.exec(job);
-            }
-
             self.check_functions_types();
-        } else {
-            // for _ in 0..=2 {
-            //     let i1 = self.clone();
-            //     std::thread::spawn(move || loop {
-            //         let job = if let Ok(jobs) = &mut i1.jobs.lock() {
-            //             if let Some(job) = jobs.pop_back() {
-            //                 job.clone()
-            //             } else {
-            // 				break;
-            //             }
-            //         } else {
-            //             continue;
-            //         };
-            //         i1.exec(job);
-            //     });
-            // }
-            loop {
-                let job = if let Ok(jobs) = &mut self.jobs.lock() {
-                    if let Some(job) = jobs.pop_back() {
-                        job.clone()
-                    } else {
-                        break;
-                    }
-                } else {
-                    continue;
-                };
-                self.exec(job);
-            }
         }
     }
 
@@ -600,331 +561,6 @@ impl Interpreter {
         } else {
             debug!("schedule expressions of function {}", &call.name);
             self.expressions(&function.inner.inner, scope);
-        }
-    }
-
-    fn exec(&self, job: Job) {
-        match &job.inner {
-            EJob::Expression(expr) => {
-                let latest = expr.latest;
-                match &expr.inner {
-                    EExpression::Statement(statement) => match &statement.inner {
-                        EStatement::Compound(input) => {
-                            // this compound can be a simple compound or a module
-                            // declaration.
-                            // If it's a module, check if it has already been executed.
-                            if input.module.is_some()
-                                && !input.initialized.load(Ordering::SeqCst)
-                                && input
-                                    .initialized
-                                    .compare_exchange(
-                                        false,
-                                        true,
-                                        Ordering::SeqCst,
-                                        Ordering::SeqCst,
-                                    )
-                                    .is_err()
-                            {
-                                todo!("return with no execution")
-                            }
-
-                            debug!("create a new scope from a scope");
-                            let value = if latest {
-                                job.scope.value.clone()
-                            } else if self.is_abstract {
-                                let boxed = Box::new(memory::abstract_uninit());
-                                Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
-                            } else {
-                                Default::default()
-                            };
-                            let new_scope_id = self.new_id();
-                            let decls = input
-                                .decls
-                                .iter()
-                                .map(|id| format!("{}::{}", id, new_scope_id))
-                                .collect();
-
-                            debug!("scope refs: {:?}", statement.refs);
-                            let memory =
-                                job.scope
-                                    .memory
-                                    .new(&statement.refs, new_scope_id, job.scope.id);
-
-                            let compound = Job {
-                                inner: EJob::Empty((value.clone(), decls)),
-                                next: job.next,
-                                scope: job.scope,
-                                fc: None,
-                            };
-
-                            let scope = Arc::new(Scope {
-                                id: new_scope_id,
-                                len: AtomicU64::new(input.inner.len() as u64),
-                                value,
-                                memory,
-                                job: Some(compound),
-                            });
-                            self.expressions(&input.inner, scope);
-                        }
-                        EStatement::Str(val) => {
-                            if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_string())
-                                } else {
-                                    Box::new(memory::string(val))
-                                };
-                                debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead string expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
-                        EStatement::Num(val) => {
-                            if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_number())
-                                } else {
-                                    Box::new(memory::number(*val))
-                                };
-                                debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead number expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
-                        EStatement::Call(call) => {
-                            debug!("Execute call statement");
-                            self.call_statement(call, job.clone(), latest, None, false)
-                        }
-                        EStatement::StdCall(call) => {
-                            debug!("Execute std call statement");
-                            self.std_call_statement(call, job.clone(), latest, None, false)
-                        }
-                        EStatement::Copy(_v) => todo!(),
-                        EStatement::Ref(v) => {
-                            debug!("process job with single reference {:?}", v);
-                            if latest {
-                                if let Some(val) = job.scope.memory.find(v, &job) {
-                                    debug!("store value {:?}", val);
-                                    let boxed = Box::new(val);
-                                    job.scope
-                                        .value
-                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
-                                } else {
-                                    debug!("reschedule because reference not found");
-                                    self.schedule(job);
-                                    return;
-                                }
-                            }
-                            debug!("job complete");
-                            self.complete_job(job);
-                        }
-                        EStatement::Function(v) => {
-                            debug!("function refs: {:?}", statement.refs);
-                            if latest {
-                                let mut captures = vec![];
-                                for c in &v.captures {
-                                    if let Some(var) = job.scope.memory.find(c, &job) {
-                                        captures.push((c.clone(), var));
-                                    } else {
-                                        self.schedule(job);
-                                        return;
-                                    }
-                                }
-                                let boxed = Box::new(memory::function(v.clone(), captures));
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead string expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
-                    },
-                    EExpression::Assignation(assignation) => {
-                        self.assignation(assignation, job.clone());
-                    }
-                    EExpression::Declaration(assignation) => {
-                        self.assignation(assignation, job.clone());
-                    }
-                    EExpression::Using(n) => todo!(),
-                }
-            }
-            EJob::Write((tag, value, decls, modify)) => {
-                let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
-                debug!("EJob::Write {:?} into {}", value, tag);
-                if self.is_abstract {
-                    if let Some(fc) = &job.fc {
-                        let fc = &mut fc.lock().unwrap();
-                        fc.output = value.clone();
-                        match &*value {
-                            Variable::Abstract(_) => {}
-                            Variable::Function(_) => {}
-                            _ => panic!("non abstract type"),
-                        }
-                        debug!("push new resolved function (Write) id: {}", fc.id);
-                        self.resolved_function_calls
-                            .lock()
-                            .unwrap()
-                            .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
-                    }
-                    job.scope.memory.abstr_write(tag.clone(), value);
-                } else if *modify {
-                    job.scope.memory.write_copy(tag.clone(), value);
-                } else {
-                    job.scope.memory.write(tag.clone(), value);
-                }
-                self.schedule(Job {
-                    inner: EJob::Delete(decls.clone()),
-                    next: None,
-                    scope: job.scope.clone(),
-                    fc: None,
-                });
-                self.complete_job(job);
-            }
-            EJob::Delete(_decls) => {
-                debug!("delete {:?} requested", _decls);
-            }
-            EJob::Builtin(call) => {
-                let mut params = vec![];
-                for (index, _) in call.params.iter().enumerate() {
-                    let param_opt = job
-                        .scope
-                        .memory
-                        .get(&format!("{}::{}", index, job.scope.id));
-                    if let Some(param) = param_opt {
-                        params.push(param);
-                    } else {
-                        self.schedule(job);
-                        return;
-                    }
-                }
-
-                let res = if self.is_abstract {
-                    // todo check parameters too.
-                    match call.std {
-                        StdFunction::Atoi => Box::new(abstract_atoi(params[0].clone()).unwrap()),
-                        StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => Box::new(
-                            abstract_i32_add(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::I32mult => Box::new(
-                            abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap(),
-                        ),
-                        StdFunction::Printf => Box::new(memory::abstract_number()),
-                        _ => todo!(),
-                    }
-                } else {
-                    match call.std {
-                        StdFunction::Atoi => Box::new(atoi(params[0].clone())),
-                        StdFunction::Itoa => todo!("itoa not implemented"),
-                        StdFunction::I32add => {
-                            Box::new(i32_add(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::I32mult => {
-                            Box::new(i32_mult(params[0].clone(), params[1].clone()))
-                        }
-                        StdFunction::Printf => Box::new(memory::number(builtin_printf(&params))),
-                        _ => todo!(),
-                    }
-                };
-                debug!("set scope value (str expr)");
-                job.scope.value.store(Box::into_raw(res), Ordering::SeqCst);
-                self.complete_job(job);
-            }
-            EJob::Empty((value, decls)) => {
-                if self.is_abstract {
-                    if let Some(fc) = &job.fc {
-                        debug!("get value (fc + abstract + empty)");
-                        let value = *unsafe { Box::from_raw(value.load(Ordering::SeqCst)) };
-                        debug!("got value (fc + abstract + empty)");
-                        let fc = &mut fc.lock().unwrap();
-                        fc.output = value.clone();
-                        match &*value {
-                            Variable::Abstract(_) => {}
-                            Variable::Function(_) => {}
-                            _ => panic!("non abstract type"),
-                        }
-                        debug!("push new resolved function (Empty), id: {}", fc.id);
-                        self.resolved_function_calls
-                            .lock()
-                            .unwrap()
-                            .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
-                    }
-                }
-                self.schedule(Job {
-                    inner: EJob::Delete(decls.clone()),
-                    next: None,
-                    scope: job.scope.clone(),
-                    fc: None,
-                });
-                self.complete_job(job);
-            }
-            EJob::Expressions(exprs) => {
-                if self.is_abstract {
-                    debug!("start interpreting function compound (abstract)");
-                    let fc = job
-                        .fc
-                        .clone()
-                        .expect("abstract interpretation must have function call tracking");
-                    let res = {
-                        let fc = &mut fc.lock().unwrap();
-                        #[cfg(feature = "debug_interpreter")]
-                        let id = fc.id.clone();
-                        for (name, ty) in fc.inputs.iter_mut() {
-                            if let Variable::Abstract(AbstractVariable::Uninit) = **ty {
-                                debug!("abstract call of {} waiting for {}", id, name);
-                                if let Some(v) = job.scope.memory.find(name, &job) {
-                                    debug!("{} found", name);
-                                    *ty = v.clone();
-                                } else {
-                                    debug!("{} still undefined", name);
-                                }
-                            }
-                        }
-                        debug!("fc inputs {:?}", fc.inputs);
-                        fc.inputs.iter().any(|(_, ty)| {
-                            matches!(**ty, Variable::Abstract(AbstractVariable::Uninit))
-                        })
-                    };
-                    if res {
-                        // There is still inputs that have to be initialized.
-                        // Abstract execution require function call input to be
-                        // ready before being processed.
-                        debug!("reschedule call");
-                        self.schedule(job);
-                        return;
-                    }
-
-                    debug!("abstract interpreter, function has all variable ready");
-
-                    let fc = &mut fc.lock().unwrap();
-                    // All input are ready, check if we already resolved the function
-                    // call.
-                    if let Some(output) = self
-                        .resolved_function_calls
-                        .lock()
-                        .unwrap()
-                        .get(&fc.id, &fc.inputs)
-                    {
-                        debug!("skip function call because already checked");
-                        let boxed = Box::new(output.clone());
-                        job.scope
-                            .value
-                            .store(Box::into_raw(boxed), Ordering::SeqCst);
-                        self.complete_job(job);
-                    } else {
-                        debug!("execute function expression: {:?}", exprs);
-                        self.expressions(exprs, job.scope);
-                    }
-                }
-            }
         }
     }
 
