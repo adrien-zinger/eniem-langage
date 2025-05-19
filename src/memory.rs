@@ -1,5 +1,5 @@
 use crate::exec_tree::*;
-use crate::interpreter::*;
+use crate::job::Job;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicI32, AtomicPtr};

@@ -10,12 +10,15 @@ use std::sync::{
     Arc,
 };
 
-use crate::interpreter::{EJob, Scope};
+use crate::interpreter::{
+    job::{EJob, Job},
+    Scope,
+};
 use crate::{
     builtins::*,
     libc::*,
     memory::{self, AbstractVariable, Variable},
-    Interpreter, Job,
+    Interpreter,
 };
 
 use crate::exec_tree::*;
@@ -57,35 +60,14 @@ impl Interpreter {
         return false;
     }
 
-    /// Execute a *Statement Expression* with a compound form.
-    ///
-    /// When `exec_compound` is called:
-    ///
-    /// ```
-    /// let a = { ... } /* not a compound, this is assignation */
-    /// { ... }         /* this is a compound */
-    /// mod { ... }     /* modules are specific compounds, exec_compound is called
-    /// ```
-    ///
-    /// 1. If its a module, return, see `Interpreter::exec_module`.
-    /// 2. Otherwise creates and schedule jobs from compound's expressions.
-    fn exec_compound(
+    fn new_compound_scope(
         &self,
         scope: Arc<Scope>,
         next: Option<EJob>,
         statement: &Statement,
         compound: &Compound,
         latest: bool,
-    ) {
-        // this compound can be a simple compound or a module
-        // declaration.
-        // If it's a module, check if it has already been executed.
-        if self.exec_module(compound) {
-            return;
-        }
-
-        debug!("create a new scope from a scope");
-
+    ) -> Arc<Scope> {
         let value = if latest {
             scope.value.clone()
         } else if self.is_abstract {
@@ -112,15 +94,133 @@ impl Interpreter {
             fc: None,
         };
 
-        let scope = Arc::new(Scope {
+        Arc::new(Scope {
             id: new_scope_id,
             len: AtomicU64::new(compound.inner.len() as u64),
             value,
             memory,
             job: Some(parent_job),
-        });
+        })
+    }
 
-        self.expressions(&compound.inner, scope);
+    /// Execute a *Statement Expression* with a compound form.
+    ///
+    /// When `exec_compound` is called:
+    ///
+    /// ```
+    /// let a = { ... } /* not a compound, this is assignation */
+    /// { ... }         /* this is a compound */
+    /// mod { ... }     /* modules are specific compounds, exec_compound is called
+    /// ```
+    ///
+    /// 1. If its a module, return, see `Interpreter::exec_module`.
+    /// 2. Otherwise creates and schedule jobs from compound's expressions.
+    fn exec_compound(
+        &self,
+        scope: Arc<Scope>,
+        next: Option<EJob>,
+        statement: &Statement,
+        compound: &Compound,
+        latest: bool,
+    ) {
+        if self.exec_module(compound) {
+            return;
+        }
+        self.expressions(
+            &compound.inner,
+            self.new_compound_scope(scope, next, statement, compound, latest),
+        );
+    }
+
+    /// Same as `Interpreter::exec_num` but with a String.
+    fn exec_str(&self, val: String, job: Job, latest: bool) {
+        if latest {
+            let boxed = if self.is_abstract {
+                Box::new(memory::abstract_string())
+            } else {
+                Box::new(memory::string(&val))
+            };
+            debug!("set scope value (str expr)");
+            job.scope
+                .value
+                .store(Box::into_raw(boxed), Ordering::SeqCst);
+        } else {
+            debug!("dead string expression spoted");
+        }
+        self.complete_job(job);
+    }
+
+    /// Execute a number expression statement. This statement
+    /// isn't a right part at least that it's contained in a
+    /// compound.
+    ///
+    /// # Inputs
+    /// - `val`: The num value stored as an i32.
+    /// - `job`: The current job containing the current scope, the value, the expression, etc.
+    /// - `latest`: Is that expression the latest of the current compound. If it is, the scope
+    ///             value will be set to the number.
+    ///
+    /// # Abstract
+    /// The abstract interpreter will put an abstract number instead of the real `val`.
+    fn exec_num(&self, val: i32, job: Job, latest: bool) {
+        if latest {
+            let boxed = if self.is_abstract {
+                Box::new(memory::abstract_number())
+            } else {
+                Box::new(memory::number(val))
+            };
+            debug!("set scope value (str expr)");
+            job.scope
+                .value
+                .store(Box::into_raw(boxed), Ordering::SeqCst);
+        } else {
+            debug!("dead number expression spoted");
+        }
+        self.complete_job(job);
+    }
+
+    /// Execute a Ref expression statement. Just an expression with a reference.
+    fn exec_ref(&self, ref_id: &str, job: Job, latest: bool) {
+        debug!("process job with single reference {:?}", v);
+        if latest {
+            if let Some(val) = job.scope.memory.find(ref_id, &job) {
+                debug!("store value {:?}", val);
+                let boxed = Box::new(val);
+                job.scope
+                    .value
+                    .store(Box::into_raw(boxed), Ordering::SeqCst);
+            } else {
+                debug!("reschedule because reference not found");
+                self.schedule(job);
+                return;
+            }
+        }
+        debug!("job complete");
+        self.complete_job(job);
+    }
+
+    /// Execute an expression statement function declaration. Not a call.
+    /// Put in memory the captured variable if found.
+    fn exec_function(&self, function: &Function, job: Job, latest: bool) {
+        debug!("function refs: {:?}", statement.refs);
+        if latest {
+            let mut captures = vec![];
+            for c in &function.captures {
+                if let Some(var) = job.scope.memory.find(c, &job) {
+                    captures.push((c.clone(), var));
+                } else {
+                    self.schedule(job);
+                    return;
+                }
+            }
+            let boxed = Box::new(memory::function(function.clone(), captures));
+            job.scope
+                .value
+                .store(Box::into_raw(boxed), Ordering::SeqCst);
+        } else {
+            debug!("dead string expression spoted");
+        }
+        self.complete_job(job);
     }
 
     /// Entry point to execute a Job.
@@ -139,38 +239,8 @@ impl Interpreter {
                         EStatement::Compound(compound) => {
                             self.exec_compound(job.scope, job.next, statement, compound, latest)
                         }
-                        EStatement::Str(val) => {
-                            if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_string())
-                                } else {
-                                    Box::new(memory::string(val))
-                                };
-                                debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead string expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
-                        EStatement::Num(val) => {
-                            if latest {
-                                let boxed = if self.is_abstract {
-                                    Box::new(memory::abstract_number())
-                                } else {
-                                    Box::new(memory::number(*val))
-                                };
-                                debug!("set scope value (str expr)");
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead number expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
+                        EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
+                        EStatement::Num(val) => self.exec_num(*val, job, latest),
                         EStatement::Call(call) => {
                             debug!("Execute call statement");
                             self.call_statement(call, job.clone(), latest, None, false)
@@ -180,45 +250,8 @@ impl Interpreter {
                             self.std_call_statement(call, job.clone(), latest, None, false)
                         }
                         EStatement::Copy(_v) => todo!(),
-                        EStatement::Ref(v) => {
-                            debug!("process job with single reference {:?}", v);
-                            if latest {
-                                if let Some(val) = job.scope.memory.find(v, &job) {
-                                    debug!("store value {:?}", val);
-                                    let boxed = Box::new(val);
-                                    job.scope
-                                        .value
-                                        .store(Box::into_raw(boxed), Ordering::SeqCst);
-                                } else {
-                                    debug!("reschedule because reference not found");
-                                    self.schedule(job);
-                                    return;
-                                }
-                            }
-                            debug!("job complete");
-                            self.complete_job(job);
-                        }
-                        EStatement::Function(v) => {
-                            debug!("function refs: {:?}", statement.refs);
-                            if latest {
-                                let mut captures = vec![];
-                                for c in &v.captures {
-                                    if let Some(var) = job.scope.memory.find(c, &job) {
-                                        captures.push((c.clone(), var));
-                                    } else {
-                                        self.schedule(job);
-                                        return;
-                                    }
-                                }
-                                let boxed = Box::new(memory::function(v.clone(), captures));
-                                job.scope
-                                    .value
-                                    .store(Box::into_raw(boxed), Ordering::SeqCst);
-                            } else {
-                                debug!("dead string expression spoted");
-                            }
-                            self.complete_job(job);
-                        }
+                        EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),
+                        EStatement::Function(v) => self.exec_function(v, job.clone(), latest),
                     },
                     EExpression::Assignation(assignation) => {
                         self.assignation(assignation, job.clone());
