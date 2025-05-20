@@ -43,12 +43,13 @@ impl Interpreter {
             .collect();
 
         let job = Job {
-            inner: EJob::Write((
-                format!("{}::{}", assign.var, job.scope.id),
-                value.clone(),
+            inner: EJob::Write(WriteJob {
+                tag: format!("{}::{}", assign.var, job.scope.id),
+                var: value.clone(),
                 decls,
-                assign.modify,
-            )),
+                modify: assign.modify,
+            })
+            .into(),
             scope: job.scope,
             next: job.next,
             fc: None,

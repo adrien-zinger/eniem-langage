@@ -157,7 +157,7 @@ impl Interpreter {
                     debug!("schedule statement");
                     blocking = input.is_blocking();
                     Job {
-                        inner: EJob::Expression(expr.clone()),
+                        inner: EJob::Expression(expr.clone()).into(),
                         next: None,
                         scope: scope.clone(),
                         fc: None,
@@ -166,7 +166,7 @@ impl Interpreter {
                 EExpression::Assignation(input) => {
                     blocking = input.block_on;
                     Job {
-                        inner: EJob::Expression(expr.clone()),
+                        inner: EJob::Expression(expr.clone()).into(),
                         next: None,
                         scope: scope.clone(),
                         fc: None,
@@ -175,7 +175,7 @@ impl Interpreter {
                 EExpression::Declaration(input) => {
                     blocking = input.block_on;
                     Job {
-                        inner: EJob::Expression(expr.clone()),
+                        inner: EJob::Expression(expr.clone()).into(),
                         next: None,
                         scope: scope.clone(),
                         fc: None,
@@ -188,7 +188,7 @@ impl Interpreter {
             // and remove the anotation. (with a compilation warning to the user)
             if blocking && index < exprs.len() - 1 {
                 debug!("postpawn blocks\n{:#?}", exprs[index + 1..].to_vec());
-                job.next = Some(EJob::Expressions(exprs[index + 1..].to_vec()));
+                job.next = Some(EJob::Expressions(exprs[index + 1..].to_vec()).into());
                 self.schedule(job);
                 break;
             } else {
@@ -208,8 +208,11 @@ impl Interpreter {
                 unreachable!("impossible to reach a scope complete with no parent")
             }
         }
-        if let Some(EJob::Expressions(exprs)) = job.next {
-            self.expressions(&exprs, job.scope);
+        if let Some(ejob) = job.next {
+            match &*ejob {
+                EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
+                _ => {}
+            }
         }
     }
 
@@ -240,7 +243,13 @@ impl Interpreter {
         let scope = if let Some(write) = write {
             let value = BoxVariable::default();
             let job = Job {
-                inner: EJob::Write((write, value.clone(), vec![], modify)),
+                inner: EJob::Write(WriteJob {
+                    tag: write,
+                    var: value.clone(),
+                    decls: vec![],
+                    modify,
+                })
+                .into(),
                 scope: job.scope,
                 next: job.next,
                 fc: None,
@@ -272,7 +281,7 @@ impl Interpreter {
             let memory = job.scope.memory.clone();
 
             let compound = Job {
-                inner: EJob::Empty((value.clone(), vec![])),
+                inner: EJob::Empty((value.clone(), vec![])).into(),
                 next: job.next,
                 scope: job.scope,
                 fc: None,
@@ -293,7 +302,7 @@ impl Interpreter {
         let memory = scope.memory.clone();
 
         let builtin_job = Job {
-            inner: EJob::Builtin(call.clone()),
+            inner: EJob::Builtin(call.clone()).into(),
             next: None,
             scope,
             fc: None,
@@ -322,7 +331,8 @@ impl Interpreter {
                 inner: EJob::Expression(Expression {
                     latest: false,
                     inner,
-                }),
+                })
+                .into(),
                 next: None,
                 scope: param_scope.clone(),
                 fc: None,
@@ -426,7 +436,13 @@ impl Interpreter {
         let scope = if let Some(write) = write {
             let value = BoxVariable::default();
             let job = Job {
-                inner: EJob::Write((write, value.clone(), decls, modify)),
+                inner: EJob::Write(WriteJob {
+                    tag: write,
+                    var: value.clone(),
+                    decls,
+                    modify,
+                })
+                .into(),
                 scope: job.scope,
                 next: job.next,
                 fc: function_call.clone(),
@@ -458,7 +474,7 @@ impl Interpreter {
             let memory = job.scope.memory.clone();
 
             let compound = Job {
-                inner: EJob::Empty((value.clone(), decls)),
+                inner: EJob::Empty((value.clone(), decls)).into(),
                 next: job.next,
                 scope: job.scope,
                 fc: function_call.clone(),
@@ -494,7 +510,8 @@ impl Interpreter {
                 inner: EJob::Expression(Expression {
                     latest: false,
                     inner,
-                }),
+                })
+                .into(),
                 next: None,
                 scope: scope.clone(),
                 fc: None,
@@ -505,7 +522,13 @@ impl Interpreter {
         for (tag, val) in captures {
             let ptr = Arc::new(AtomicPtr::new(Box::into_raw(Box::new(val))));
             let job = Job {
-                inner: EJob::Write((format!("{}::{}", tag, scope.id), ptr, vec![], false)),
+                inner: EJob::Write(WriteJob {
+                    tag: format!("{}::{}", tag, scope.id),
+                    var: ptr,
+                    decls: vec![],
+                    modify: false,
+                })
+                .into(),
                 scope: scope.clone(),
                 next: None,
                 fc: None,
@@ -521,7 +544,7 @@ impl Interpreter {
         // as not resolved, we process the inner expression.
         if self.is_abstract {
             self.schedule(Job {
-                inner: EJob::Expressions(function.inner.inner),
+                inner: EJob::Expressions(function.inner.inner).into(),
                 scope,
                 next: None,
                 fc: function_call,
@@ -609,7 +632,7 @@ impl Interpreter {
                                 }));
                                 // Create Job that would write the return type eventually.
                                 let res_job = Job {
-                                    inner: EJob::Empty((value.clone(), vec![])),
+                                    inner: EJob::Empty((value.clone(), vec![])).into(),
                                     next: None,
                                     scope: base_scope.clone(),
                                     fc: Some(fc.clone()),
@@ -623,7 +646,7 @@ impl Interpreter {
                                 });
                                 // Create the Job containing the function's expressions.
                                 let job = Job {
-                                    inner: EJob::Expressions(other.inner.inner.clone()),
+                                    inner: EJob::Expressions(other.inner.inner.clone()).into(),
                                     fc: Some(fc.clone()),
                                     next: None,
                                     scope,

@@ -1,7 +1,27 @@
 use crate::interpreter::*;
-use crate::memory::*;
 
-#[derive(Clone)]
+/// After a scope complete (each expression in compound complete).
+/// A `WriteJob` is used to describe what the interpreter has to
+/// do with the scope memory and the returned value.
+///
+/// Generally the WriteJob is generated when the user write:
+///
+/// ```
+/// let a = { expr }
+/// ```
+///
+/// See `Interpreter::exec_write` in interpreter::exec.
+pub struct WriteJob {
+    /// Variable tag. `a` identifier in the example.
+    pub tag: String,
+    /// Value of the scope. `{ expr }` in the example.
+    pub var: BoxVariable,
+    /// Variables tags declared in the scope.
+    pub decls: Vec<String>,
+    /// True if it is the `a := {}` case.
+    pub modify: bool,
+}
+
 pub enum EJob {
     Expression(Expression),
     /// Builtin function as printf, itoa, i32_add...
@@ -12,14 +32,7 @@ pub enum EJob {
     ///         before running the function compound statement.
     Expressions(Vec<Expression>),
     /// Write value from box into memory (end scope)
-    Write(
-        (
-            String,
-            BoxVariable,
-            Vec<String>, /* variables declared in the scope */
-            bool,        /* modify or not */
-        ),
-    ),
+    Write(WriteJob),
     /// Free scope
     Delete(Vec<String>),
     /// End of scope
@@ -29,9 +42,9 @@ pub enum EJob {
 #[derive(Clone)]
 pub struct Job {
     /// Kind of job it contains.
-    pub inner: EJob,
+    pub inner: Arc<EJob>,
     /// Jobs to be executed after completing this one.
-    pub next: Option<EJob>,
+    pub next: Option<Arc<EJob>>,
     /// Scope of the current job.
     pub scope: Arc<Scope>,
     /// Related function call of this Job. A parameter
