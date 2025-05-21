@@ -16,6 +16,7 @@ use crate::{
 
 use crate::exec_tree::*;
 
+mod calls;
 mod expressions;
 mod write;
 
@@ -49,7 +50,7 @@ impl Interpreter {
             EStatement::Compound(compound) => self.exec_compound(job, statement, compound, latest),
             EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
             EStatement::Num(val) => self.exec_num(*val, job, latest),
-            EStatement::Call(call) => self.call_statement(call, job, latest, None, false),
+            EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
             EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),

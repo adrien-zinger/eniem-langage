@@ -173,7 +173,8 @@ impl Interpreter {
     fn call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
-        self.call_statement(input, job, false, Some(id), assign.modify)
+        // TODO use _
+        let _ = self.call_statement(input, job, false, Some(id), assign.modify);
     }
 
     /// Same as call but with builtins and libc bindings. See alse `call`.

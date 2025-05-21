@@ -13,5 +13,5 @@ printf!("%s\n", a)
 /* Write the value of "hi" into b (and into a) */
 b := "hi"
 
-printf!("%s\n", a)
-printf!("%s\n", b)
+printf!("%s\n", a) /* expect hi */
+printf!("%s\n", b) /* expect hi too */

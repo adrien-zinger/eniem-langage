@@ -27,7 +27,7 @@ pub enum AbstractVariable {
 }
 
 /// Variable tag and a reference to that variable.
-type Inputs = Vec<(String, Arc<Variable>)>;
+pub type Inputs = Vec<(String, Arc<Variable>)>;
 
 #[derive(Debug)]
 pub enum Variable {

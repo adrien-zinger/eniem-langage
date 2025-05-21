@@ -56,6 +56,7 @@ impl Interpreter {
             .scope
             .memory
             .new(&statement.refs, new_scope_id, job.scope.id);
+        // Create a parent Job Empty, without function call.
         let parent_job = Job {
             inner: EJob::Empty((value.clone(), decls)).into(),
             next: job.next,

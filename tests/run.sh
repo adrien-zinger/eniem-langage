@@ -16,5 +16,5 @@ echo -e "--- identity --- \nOutput:"
 ./target/release/eniem tests/identity.n
 echo -e "--- assignation 1 (world expected) --- \nOutput:"
 ./target/release/eniem tests/var_assignation.n
-echo -e "--- assignation 2 --- \nOutput:"
+echo -e "--- assignation 2 (hi hi hi) --- \nOutput:"
 ./target/release/eniem tests/ref_assign.n

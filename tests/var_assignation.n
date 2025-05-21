@@ -1,5 +1,6 @@
 let foo = "hello"
 await {
-	foo = "world"
+	/* realy modify foo */
+	foo := "world"
 }
 printf!("%s\n", foo)
