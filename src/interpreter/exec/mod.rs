@@ -43,32 +43,26 @@ impl Interpreter {
         return true;
     }
 
+    /// Subfunction in dispatch statement expression. See `exec_expression`.
+    fn exec_statement(&self, job: Job, statement: &Statement, latest: bool) {
+        match &statement.inner {
+            EStatement::Compound(compound) => self.exec_compound(job, statement, compound, latest),
+            EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
+            EStatement::Num(val) => self.exec_num(*val, job, latest),
+            EStatement::Call(call) => self.call_statement(call, job, latest, None, false),
+            EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
+            EStatement::Copy(_v) => todo!(),
+            EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),
+            EStatement::Function(v) => self.exec_function(v, job, latest),
+        }
+    }
+
     /// Dispatch execution to dedicated function for each kind of Expression.
     fn exec_expression(&self, job: Job, expr: &Expression) {
-        let latest = expr.latest;
         match &expr.inner {
-            EExpression::Statement(statement) => match &statement.inner {
-                EStatement::Compound(compound) => {
-                    self.exec_compound(job.scope, job.next, statement, compound, latest)
-                }
-                EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
-                EStatement::Num(val) => self.exec_num(*val, job, latest),
-                EStatement::Call(call) => {
-                    self.call_statement(call, job.to_owned(), latest, None, false)
-                }
-                EStatement::StdCall(call) => {
-                    self.std_call_statement(call, job.to_owned(), latest, None, false)
-                }
-                EStatement::Copy(_v) => todo!(),
-                EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),
-                EStatement::Function(v) => self.exec_function(v, job.to_owned(), latest),
-            },
-            EExpression::Assignation(assignation) => {
-                self.assignation(assignation, job.to_owned());
-            }
-            EExpression::Declaration(assignation) => {
-                self.assignation(assignation, job.to_owned());
-            }
+            EExpression::Statement(statement) => self.exec_statement(job, statement, expr.latest),
+            EExpression::Assignation(assignation) => self.assignation(assignation, job),
+            EExpression::Declaration(assignation) => self.assignation(assignation, job),
             EExpression::Using(n) => todo!(),
         }
     }

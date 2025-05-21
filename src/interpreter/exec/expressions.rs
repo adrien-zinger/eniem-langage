@@ -20,6 +20,7 @@ macro_rules! debug {
 }
 
 impl Interpreter {
+    /// Execute a eniem's module expression.
     pub(super) fn exec_module(&self, compound: &Compound) -> bool {
         if compound.module.is_some()
             && !compound.initialized.load(Ordering::SeqCst)
@@ -33,15 +34,17 @@ impl Interpreter {
         return false;
     }
 
+    /// Create a new Scope for a compound.
+    /// Used only for a left value. Assigned compound are managed
+    /// in `assignation` module.
     fn new_compound_scope(
         &self,
-        scope: Arc<Scope>,
-        next: Option<Arc<EJob>>,
+        job: Job,
         statement: &Statement,
         compound: &Compound,
         latest: bool,
     ) -> Arc<Scope> {
-        let value = scope.get_new_value(self.is_abstract, latest);
+        let value = job.scope.get_new_value(self.is_abstract, latest);
         let new_scope_id = self.new_id();
         let decls = compound
             .decls
@@ -49,11 +52,14 @@ impl Interpreter {
             .map(|id| format!("{}::{}", id, new_scope_id))
             .collect();
         debug!("scope refs: {:?}", statement.refs);
-        let memory = scope.memory.new(&statement.refs, new_scope_id, scope.id);
+        let memory = job
+            .scope
+            .memory
+            .new(&statement.refs, new_scope_id, job.scope.id);
         let parent_job = Job {
             inner: EJob::Empty((value.clone(), decls)).into(),
-            next,
-            scope,
+            next: job.next,
+            scope: job.scope,
             fc: None,
         };
         Arc::new(Scope {
@@ -79,8 +85,7 @@ impl Interpreter {
     /// 2. Otherwise creates and schedule jobs from compound's expressions.
     pub(super) fn exec_compound(
         &self,
-        scope: Arc<Scope>,
-        next: Option<Arc<EJob>>,
+        job: Job,
         statement: &Statement,
         compound: &Compound,
         latest: bool,
@@ -90,7 +95,7 @@ impl Interpreter {
         }
         self.expressions(
             &compound.inner,
-            self.new_compound_scope(scope, next, statement, compound, latest),
+            self.new_compound_scope(job, statement, compound, latest),
         );
     }
 
