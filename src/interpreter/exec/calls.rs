@@ -96,7 +96,7 @@ impl Interpreter {
     /// If an Error is raised, the Job has been rescheduled.
     fn get_function_and_captures(&self, job: &Job, call: &Call) -> Result<(Function, Inputs), ()> {
         // find function in memory
-        let function = if let Some(function) = job.scope.memory.find(&call.name, &job) {
+        let function = if let Some(function) = job.scope.memory.find(&call.name, job) {
             function
         } else {
             debug!("function not found {}", call.name);
@@ -222,7 +222,7 @@ impl Interpreter {
     /// ```
     /// let create_counter = () {
     ///      /* create i */
-    /// 		let i = 0;
+    ///      let i = 0;
     ///      /* clone a reference to i */
     ///      () { i = i + 1; i }
     ///      /* one reference to i is destroyed */
@@ -285,7 +285,7 @@ impl Interpreter {
             self.new_empty_scope(job, decls, &function_call, scope_len, scope_id, latest)
         };
         // Set function parameters into new function scope.
-        self.set_parameters(&function, &call, function_scope.clone());
+        self.set_parameters(&function, call, function_scope.clone());
         // Define captured variables in the execution flow.
         self.set_captured(captures, function_scope.clone());
         // If the interpreter is abstract, we want first to resolve the input

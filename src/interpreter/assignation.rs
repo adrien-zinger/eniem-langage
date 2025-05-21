@@ -1,4 +1,4 @@
-///! Interpretation of an assignation expression.
+//! Interpretation of an assignation expression.
 use crate::memory::{self, *};
 
 use std::sync::atomic::AtomicU64;
@@ -30,7 +30,7 @@ impl Interpreter {
     ///       references extern (in upper scopes).
     /// 2. Register the compound inner expression list within the
     ///    scope by calling `Interpreter::expressions`.
-    fn compound(&self, input: &Arc<exec_tree::Compound>, assign: &Assignation, job: Job) {
+    fn assign_compound(&self, input: &Arc<exec_tree::Compound>, assign: &Assignation, job: Job) {
         debug!("assignation create a scope");
         let value = BoxVariable::default();
         debug!("scope decls: {:?}", input.decls);
@@ -71,7 +71,7 @@ impl Interpreter {
 
     /// Assign directly a value into memory and complete the Job.
     /// See `Interpreter::complete_job` in common.rs.
-    fn str(&self, value: &String, assign: &Assignation, job: Job) {
+    fn assign_str(&self, value: &str, assign: &Assignation, job: Job) {
         let key = format!("{}::{}", assign.var, job.scope.id);
         debug!("assign a string to {key}, {value}");
         if self.is_abstract {
@@ -90,7 +90,7 @@ impl Interpreter {
 
     /// Assign directly a value into memory and complete the Job.
     /// See `Interpreter::complete_job` in common.rs.
-    fn num(&self, value: i32, assign: &Assignation, job: Job) {
+    fn assign_num(&self, value: i32, assign: &Assignation, job: Job) {
         let key = format!("{}::{}", assign.var, job.scope.id);
         debug!("assign a number to {key}");
         if self.is_abstract {
@@ -132,7 +132,7 @@ impl Interpreter {
     /// The abstract interpreter store the function in `Interpreter::functions`
     /// HashMap. Also, the write into memory has a side effect to the exec_tree
     /// itself. Look at the memory module for more information `memory::abstr_write`.
-    fn function(&self, input: &exec_tree::Function, assign: &Assignation, job: Job) {
+    fn assign_function(&self, input: &exec_tree::Function, assign: &Assignation, job: Job) {
         debug!("Assign a function");
         debug!("function refs: {:?}", assign.to_assign.refs);
         let mut captures = vec![];
@@ -170,7 +170,7 @@ impl Interpreter {
 
     /// Interprets a call statement. Redirect to `Interpreter::call_statement`.
     /// See module interpreter::call.
-    fn call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
+    fn assign_call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
         // TODO use _
@@ -178,7 +178,7 @@ impl Interpreter {
     }
 
     /// Same as call but with builtins and libc bindings. See alse `call`.
-    fn std_call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
+    fn assign_std_call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute StdCall statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
         self.std_call_statement(input, job, false, Some(id), assign.modify)
@@ -196,7 +196,7 @@ impl Interpreter {
     /// box of the left part by what's in the box of the right part. Modifying
     /// the right part after a such action will modify the left part as a side
     /// effect. See `crate::memory` module.
-    fn ref_statement(&self, input: &String, assign: &Assignation, job: Job) {
+    fn assign_ref_statement(&self, input: &str, assign: &Assignation, job: Job) {
         debug!("try to assign {} from {input}", assign.var);
         let right_part = job.scope.memory.find(input, &job);
         if right_part.is_none() {
@@ -236,14 +236,14 @@ impl Interpreter {
     pub fn assignation(&self, assign: &Assignation, job: Job) {
         debug!("enter assignation, job scope id {}", job.scope.id);
         match &assign.to_assign.inner {
-            EStatement::Compound(input) => self.compound(input, assign, job),
-            EStatement::Str(value) => self.str(value, assign, job),
-            EStatement::Num(value) => self.num(*value, assign, job),
-            EStatement::Function(input) => self.function(input, assign, job),
-            EStatement::Call(input) => self.call(input, assign, job),
-            EStatement::StdCall(input) => self.std_call(input, assign, job),
+            EStatement::Compound(input) => self.assign_compound(input, assign, job),
+            EStatement::Str(value) => self.assign_str(value, assign, job),
+            EStatement::Num(value) => self.assign_num(*value, assign, job),
+            EStatement::Function(input) => self.assign_function(input, assign, job),
+            EStatement::Call(input) => self.assign_call(input, assign, job),
+            EStatement::StdCall(input) => self.assign_std_call(input, assign, job),
             EStatement::Copy(_c) => todo!(),
-            EStatement::Ref(input) => self.ref_statement(input, assign, job),
+            EStatement::Ref(input) => self.assign_ref_statement(input, assign, job),
         }
     }
 }

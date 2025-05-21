@@ -1,7 +1,7 @@
-///! Interpreter module.
-///!
-///! Contains both abstract interpreter and normal interpreter
-///! implementation.
+//! Interpreter module.
+//!
+//! Contains both abstract interpreter and normal interpreter
+//! implementation.
 use crate::exec_tree::*;
 use crate::memory::{self, *};
 
@@ -228,9 +228,8 @@ impl Interpreter {
             }
         }
         if let Some(ejob) = job.next {
-            match &*ejob {
-                EJob::Expressions(exprs) => self.expressions(&exprs, job.scope),
-                _ => {}
+            if let EJob::Expressions(exprs) = &*ejob {
+            	self.expressions(exprs, job.scope);
             }
         }
     }

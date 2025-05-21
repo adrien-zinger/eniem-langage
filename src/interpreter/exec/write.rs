@@ -15,7 +15,7 @@ macro_rules! debug {
 }
 
 impl Interpreter {
-    pub(super) fn exec_empty(&self, job: Job, value: &BoxVariable, decls: &Vec<String>) {
+    pub(super) fn exec_empty(&self, job: Job, value: &BoxVariable, decls: &[String]) {
         if self.is_abstract {
             if let Some(fc) = &job.fc {
                 debug!("get value (fc + abstract + empty)");
@@ -36,7 +36,7 @@ impl Interpreter {
             }
         }
         self.schedule(Job {
-            inner: EJob::Delete(decls.clone()).into(),
+            inner: EJob::Delete(decls.to_owned()).into(),
             next: None,
             scope: job.scope.clone(),
             fc: None,

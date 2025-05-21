@@ -191,7 +191,10 @@ impl Memory {
                 .and_modify(|varbox| match &**varbox {
                     Variable::String(old_value) => {
                         if let Variable::String(new_value) = &*value {
-                            *old_value.lock().unwrap() = new_value.lock().unwrap().clone();
+                            old_value
+                                .lock()
+                                .unwrap()
+                                .clone_from(&new_value.lock().unwrap());
                         } else {
                             unreachable!("protected")
                         }

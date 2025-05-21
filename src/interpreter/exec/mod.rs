@@ -41,7 +41,7 @@ impl Interpreter {
             return true;
         };
         self.exec(job);
-        return true;
+        true
     }
 
     /// Subfunction in dispatch statement expression. See `exec_expression`.
@@ -122,7 +122,7 @@ impl Interpreter {
         self.complete_job(job);
     }
 
-    fn exec_expressions(&self, job: Job, exprs: &Vec<Expression>) {
+    fn exec_expressions(&self, job: Job, exprs: &[Expression]) {
         if self.is_abstract {
             debug!("start interpreting function compound (abstract)");
             let fc = job

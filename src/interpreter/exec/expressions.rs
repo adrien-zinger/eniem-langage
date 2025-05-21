@@ -31,7 +31,7 @@ impl Interpreter {
         {
             todo!("return with no execution")
         }
-        return false;
+        false
     }
 
     /// Create a new Scope for a compound.
