@@ -273,7 +273,7 @@ fn test_assignation_ref() {
         inner: EJob::Expression(Expression {
             inner: EExpression::Assignation(assignation.clone()),
             latest: true,
-        }),
+        }).into(),
         next: None,
         fc: None,
         scope: scope.clone(),

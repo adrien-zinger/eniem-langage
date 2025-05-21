@@ -37,6 +37,25 @@ impl Scope {
         let boxed = Box::new(var);
         self.value.store(Box::into_raw(boxed), Ordering::SeqCst);
     }
+
+    /// Get a new value for a new scope that is a "child" of this scope.
+    ///
+    /// Set latest to true if you want the new scope position is at the end
+    /// of the current scope. i.e. `{ let a = 1; {a} }`, `{a}` is at the end.
+    /// It implies that the first compound return value IS the inner compound
+    /// (`{a}` in the example) return value.
+    ///
+    /// Set is_abstract to true if it's an abstract context.
+    pub fn get_new_value(&self, is_abstract: bool, latest: bool) -> BoxVariable {
+        if latest {
+            self.value.clone()
+        } else if is_abstract {
+            let boxed = Box::new(memory::abstract_uninit());
+            Arc::new(AtomicPtr::new(Box::into_raw(boxed)))
+        } else {
+            Default::default()
+        }
+    }
 }
 
 /// Tracking function calls in abstract context.
