@@ -173,7 +173,7 @@ impl Interpreter {
     fn assign_call(&self, input: &exec_tree::Call, assign: &Assignation, job: Job) {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
-        // TODO use _
+        // TODO use the _ bellow
         let _ = self.call_statement(input, job, false, Some(id), assign.modify);
     }
 

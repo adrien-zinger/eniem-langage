@@ -491,7 +491,7 @@ pub fn unary_operation(s: Span) -> IResult<Span, UnaryOperation> {
 }
 
 /// Parse a sequence of binary operation "a * b * ...".
-/// Fallback to unary operation if new such '*'.
+/// Fallback to unary operation if no such '*'.
 pub fn mult_operation(s: Span) -> IResult<Span, Operation> {
     let (s, _) = spacing(s)?;
     let (s, right) = unary_operation(s)?;
@@ -513,21 +513,23 @@ pub fn mult_operation(s: Span) -> IResult<Span, Operation> {
 }
 
 /// Parse a sequence of binary operation "a + b + ..." (+ or -).
-/// Fallback to mult operation if new such '+'.
+/// Fallback to mult operation if no such '+'.
 pub fn add_operation(s: Span) -> IResult<Span, Operation> {
     let (s, _) = spacing(s)?;
     let (s, right) = mult_operation(s)?;
     let (s, _) = spacing(s)?;
-    let (s, operator) = opt(alt((tag("-"), tag("+")))).parse(s)?;
+    let (s, operator) = opt(alt((tag("-"), tag("+"), tag("=="), tag("!=")))).parse(s)?;
     if operator.is_none() {
         return Ok((s, right));
     }
     let (s, _) = spacing(s)?;
     let (s, left) = add_operation(s)?;
-    let operator = if *operator.unwrap().fragment() == "-" {
-        Operator::Minus
-    } else {
-        Operator::Plus
+    let operator = match *operator.unwrap().fragment() {
+        "-" => Operator::Minus,
+        "+" => Operator::Plus,
+        "==" => Operator::EqualEqual,
+        "!=" => Operator::NotEqual,
+        _ => unreachable!(),
     };
     Ok((
         s,
@@ -539,6 +541,7 @@ pub fn add_operation(s: Span) -> IResult<Span, Operation> {
     ))
 }
 
+/// Try to parse an operation. It can be arithmetic or logic.
 pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
     let (s, op) = add_operation(s)?;
     let (s, pos) = position(s)?;

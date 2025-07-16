@@ -247,7 +247,7 @@ impl Scopes {
             }
             tree::EStatement::Str(text) => EStatement::Str(text),
             tree::EStatement::Num(num) => EStatement::Num(num),
-            tree::EStatement::Operation(_) => todo!(),
+            tree::EStatement::Operation(op) => self.operation(*op, &mut refs, scope, decls),
             tree::EStatement::Compound(c) => {
                 let new_scope = scope.push(line, column);
                 let compound = self.compound(c, new_scope.clone(), decls.clone());
@@ -279,14 +279,6 @@ impl Scopes {
                 }
             }
             tree::EStatement::Call(c) => {
-                if let Some(info) = lookup(&c.name, &decls) {
-                    if info.scope != scope {
-                        refs.insert(info);
-                    }
-                } else {
-                    self.errors
-                        .push(format!("{} not declared in this scope.", c.name));
-                }
                 let mut params = vec![];
                 for param in c.params {
                     let param = self.statement(param, scope.clone(), decls.clone());
@@ -340,6 +332,74 @@ impl Scopes {
             line,
             column,
             refs,
+        }
+    }
+
+    /// Translate an operation into a call statement.
+    fn operation(
+        &mut self,
+        operation: tree::Operation,
+        refs: &mut HashSet<VarInfo>,
+        scope: Scope,
+        decls: Vec<VarInfo>,
+    ) -> EStatement {
+        /// Get function name from parsed operator.
+        fn get_name(operator: &tree::Operator) -> &'static str {
+            match operator {
+                tree::Operator::EqualEqual => "equal",
+                tree::Operator::NotEqual => "not_equal",
+                tree::Operator::Minus => "minus",
+                tree::Operator::Plus => "plus",
+                _ => todo!(),
+            }
+        }
+
+        // Transform an operation into a call statement to execute.
+        // An operation can be Unary: contains a single statement
+        // Or binary: contains two Operation.
+        let (name, params) = match operation {
+            tree::Operation::Unary(operation) => {
+                // Set function parameter
+                let param = self.statement(operation.statement, scope.clone(), decls.clone());
+                extend_refs(refs, &param.refs, &scope);
+                (get_name(&operation.operator), vec![param])
+            }
+            tree::Operation::Binary(operation) => {
+                // Set function parameters - recursive call
+                let left = self.operation(operation.left, refs, scope.clone(), decls.clone());
+                let right = self.operation(operation.right, refs, scope.clone(), decls.clone());
+                let left = Statement {
+                    inner: left,
+                    line: 0,
+                    refs: refs.clone(),
+                    column: 0,
+                };
+                let right = Statement {
+                    inner: right,
+                    line: 0,
+                    refs: refs.clone(),
+                    column: 0,
+                };
+                (get_name(&operation.operator), vec![left, right])
+            }
+        };
+
+        // Find function name in the current scope. Insert it
+        // as a reference in the current scope if it's in an upper
+        // scope. Return a call statement.
+        if let Some(info) = lookup(name, &decls) {
+            if info.scope != scope {
+                refs.insert(info.clone());
+            }
+            EStatement::Call(Call {
+                block_on: false,
+                params,
+                name: info,
+            })
+        } else {
+            self.errors
+                .push(format!("{} not declared in this scope.", name));
+            EStatement::Skip
         }
     }
 

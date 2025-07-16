@@ -99,12 +99,12 @@ pub enum EExpression<'a> {
     Using(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Operator {
-    // /// ==
-    // EqualEqual,
-    // /// !=
-    // NotEqual,
+    /// ==
+    EqualEqual,
+    /// !=
+    NotEqual,
     // /// >
     // GreaterThan,
     // /// <
