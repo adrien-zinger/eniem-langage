@@ -45,6 +45,7 @@ pub enum EStatement<'a> {
     Call(Call<'a>),
     StdCall(Call<'a>),
     Operation(Box<Operation<'a>>),
+    Branch(Box<Branch<'a>>),
 }
 
 #[derive(Debug)]
@@ -147,4 +148,12 @@ pub struct BinaryOperation<'a> {
     pub operator: Operator,
     pub right: Operation<'a>,
     pub left: Operation<'a>,
+}
+
+/// Structure for "if condition then left else right".
+#[derive(Debug, PartialEq)]
+pub struct Branch<'a> {
+    pub condition: Statement<'a>,
+    pub left: Statement<'a>,
+    pub right: Statement<'a>,
 }

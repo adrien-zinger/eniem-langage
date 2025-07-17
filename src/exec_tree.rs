@@ -86,6 +86,14 @@ pub enum EStatement {
     Ref(String),
     Call(Call),
     StdCall(Call),
+    Branch(Arc<Branch>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Branch {
+    pub condition: Statement,
+    pub left: Statement,
+    pub right: Statement,
 }
 
 #[derive(Debug, Clone)]
@@ -212,19 +220,32 @@ impl Scope2ETree {
     fn statement(&mut self, val: scopes::Statement) -> Statement {
         Statement {
             inner: match val.inner {
+                scopes::EStatement::Branch(n) => EStatement::Branch(
+                    Branch {
+                        condition: self.statement(n.condition),
+                        left: self.statement(n.left),
+                        right: self.statement(n.right),
+                    }
+                    .into(),
+                ),
                 scopes::EStatement::Function(n) => EStatement::Function(self.function(n)),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
                 scopes::EStatement::Compound(n) => {
                     if let Some(module_id) = &n.borrow().module {
                         if let Some(module) = self.modules.get(module_id) {
+                            // Return a new reference of the module.
                             EStatement::Compound(module.clone())
                         } else {
+                            // If the module is still not visited, add it to the known
+                            // modules.
                             let module = Arc::new(self.compound(n.borrow().clone()));
                             self.modules.insert(module_id.clone(), module.clone());
                             EStatement::Compound(module)
                         }
                     } else {
+                        // Not a module, just get it (cloning it) and put it into
+                        // a Compound.
                         EStatement::Compound(Arc::new(self.compound(n.borrow().clone())))
                     }
                 }

@@ -107,7 +107,15 @@ pub enum EStatement {
     Ref(VarInfo),
     Call(Call),
     StdCall(Call),
+    Branch(Box<Branch>),
     Skip,
+}
+
+#[derive(Debug, Clone)]
+pub struct Branch {
+    pub condition: Statement,
+    pub left: Statement,
+    pub right: Statement,
 }
 
 #[derive(Debug, Clone)]
@@ -299,6 +307,25 @@ impl Scopes {
                         .push(format!("{} not declared in this scope.", c.name));
                     EStatement::Skip
                 }
+            }
+            tree::EStatement::Branch(b) => {
+                // Branch react exactly as if we had 3 compounds statements.
+                // One for the condition, another for the left part and another
+                // for the right part.
+
+                // But let simply call recursively the statement function.
+                let condition = self.statement(b.condition, scope.clone(), decls.clone());
+                extend_refs(&mut refs, &condition.refs, &scope);
+                let left = self.statement(b.left, scope.clone(), decls.clone());
+                extend_refs(&mut refs, &left.refs, &scope);
+                let right = self.statement(b.right, scope.clone(), decls.clone());
+                extend_refs(&mut refs, &right.refs, &scope);
+                let branch = Branch {
+                    condition,
+                    left,
+                    right,
+                };
+                EStatement::Branch(branch.into())
             }
             tree::EStatement::StdCall(c) => {
                 if c.name == "printf"

@@ -61,6 +61,7 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     let s = case1.0;
     debug!("statement case 2, fragment: {}", s.fragment());
     let (s, statement) = alt((
+        branch_statement,
         copy_statement,
         string_statement,
         num_statement,
@@ -75,6 +76,31 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = spacing(s)?;
     debug!("return statement {}", s.fragment());
     Ok((s, statement))
+}
+
+/// The branch statement is the "if" statement
+/// which split the execution into two possible
+/// way.
+fn branch_statement(s: Span) -> IResult<Span, Statement> {
+    let (s, _) = spacing(s)?;
+    let (s, pos) = position(s)?;
+    let (s, _) = tag("if")(s)?;
+    let (s, condition) = operation_statement(s)?;
+    let (s, left) = compound_statement(s)?;
+    let (s, _) = spacing(s)?;
+    let (s, _) = tag("else")(s)?;
+    let (s, _) = spacing(s)?;
+    let (s, right) = compound_statement(s)?;
+    let branch = Branch {
+        condition,
+        left,
+        right,
+    };
+    let res = Statement {
+        pos,
+        inner: EStatement::Branch(branch.into()),
+    };
+    Ok((s, res))
 }
 
 fn expression_statement(s: Span) -> IResult<Span, Expression> {
@@ -382,6 +408,7 @@ fn test_assignation() {
 
 pub fn param_statement(s: Span) -> IResult<Span, Statement> {
     alt((
+        branch_statement,
         function_statement,
         compound_statement,
         copy_statement,
@@ -443,6 +470,7 @@ pub fn primitive_operation_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = spacing(s)?;
     // case1
     let case1 = alt((
+        branch_statement,
         function_statement,
         compound_statement,
         copy_statement,
@@ -542,6 +570,10 @@ pub fn add_operation(s: Span) -> IResult<Span, Operation> {
 }
 
 /// Try to parse an operation. It can be arithmetic or logic.
+/// This is the top of operation parsing.
+///
+/// Can be used as function parameter, right part of an assignation,
+/// into a branch test.
 pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
     let (s, op) = add_operation(s)?;
     let (s, pos) = position(s)?;

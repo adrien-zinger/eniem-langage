@@ -55,6 +55,7 @@ impl Interpreter {
             EStatement::Copy(_v) => todo!(),
             EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),
             EStatement::Function(v) => self.exec_function(v, job, latest),
+            EStatement::Branch(_branch) => todo!(),
         }
     }
 
@@ -64,7 +65,7 @@ impl Interpreter {
             EExpression::Statement(statement) => self.exec_statement(job, statement, expr.latest),
             EExpression::Assignation(assignation) => self.assignation(assignation, job),
             EExpression::Declaration(assignation) => self.assignation(assignation, job),
-            EExpression::Using(n) => todo!(),
+            EExpression::Using(_using) => todo!(),
         }
     }
 

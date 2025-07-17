@@ -200,7 +200,7 @@ impl Interpreter {
                         fc: None,
                     }
                 }
-                EExpression::Using(n) => todo!(),
+                EExpression::Using(_using) => todo!(),
             };
 
             // todo test in another pass if 'await' is on the last expression
