@@ -115,6 +115,21 @@ impl Interpreter {
         self.complete_job(job);
     }
 
+    /// Same as `Interpreter::exec_num` but with a Boolean.
+    pub(super) fn exec_bool(&self, val: bool, job: Job, latest: bool) {
+        if latest {
+            debug!("set scope value (str expr)");
+            job.scope.set_value(if self.is_abstract {
+                memory::abstract_boolean()
+            } else {
+                memory::boolean(val)
+            });
+        } else {
+            debug!("dead string expression spoted");
+        }
+        self.complete_job(job);
+    }
+
     /// Execute a number expression statement. This statement
     /// isn't a right part at least that it's contained in a
     /// compound.

@@ -107,6 +107,25 @@ impl Interpreter {
         self.complete_job(job);
     }
 
+    /// Assign directly a value into memory and complete the Job.
+    /// See `Interpreter::complete_job` in common.rs.
+    fn assign_bool(&self, value: bool, assign: &Assignation, job: Job) {
+        let key = format!("{}::{}", assign.var, job.scope.id);
+        debug!("assign a number to {key}");
+        if self.is_abstract {
+            let varbox = memory::abstract_boolean();
+            job.scope.memory.abstr_write(key, varbox);
+        } else {
+            let varbox = memory::boolean(value);
+            if assign.modify {
+                job.scope.memory.write_copy(key, varbox);
+            } else {
+                job.scope.memory.write(key, varbox);
+            }
+        }
+        self.complete_job(job);
+    }
+
     /// Interprets function assignation or declaration.
     ///
     /// This function is called when an assignation with a function
@@ -239,6 +258,7 @@ impl Interpreter {
             EStatement::Compound(input) => self.assign_compound(input, assign, job),
             EStatement::Str(value) => self.assign_str(value, assign, job),
             EStatement::Num(value) => self.assign_num(*value, assign, job),
+            EStatement::Bool(value) => self.assign_bool(*value, assign, job),
             EStatement::Function(input) => self.assign_function(input, assign, job),
             EStatement::Call(input) => self.assign_call(input, assign, job),
             EStatement::StdCall(input) => self.assign_std_call(input, assign, job),

@@ -81,6 +81,7 @@ pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
     Num(i32 /* inner signed number */),
+    Bool(bool),
     Compound(Arc<Compound>),
     Copy(String /* variable name */),
     Ref(String),
@@ -231,6 +232,7 @@ impl Scope2ETree {
                 scopes::EStatement::Function(n) => EStatement::Function(self.function(n)),
                 scopes::EStatement::Str(n) => EStatement::Str(n),
                 scopes::EStatement::Num(n) => EStatement::Num(n),
+                scopes::EStatement::Bool(n) => EStatement::Bool(n),
                 scopes::EStatement::Compound(n) => {
                     if let Some(module_id) = &n.borrow().module {
                         if let Some(module) = self.modules.get(module_id) {

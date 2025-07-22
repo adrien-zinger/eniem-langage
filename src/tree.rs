@@ -37,8 +37,9 @@ pub struct Compound<'a> {
 #[derive(Debug, PartialEq)]
 pub enum EStatement<'a> {
     Function(Function<'a>),
-    Str(String /* inner text */),
+    Str(String /* inner text (should I use &static str?) */),
     Num(i32 /* inner number (signed) */),
+    Bool(bool /* inner boolean */),
     Compound(Compound<'a>),
     Copy(String /* variable name */),
     Ref(String /* variable name */),

@@ -2,8 +2,7 @@ use crate::exec_tree::*;
 use crate::job::Job;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicI32, AtomicPtr};
-use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
+use std::sync::{atomic::*, Arc, Mutex, RwLock};
 
 macro_rules! debug {
     ($($rest:tt)*) => {
@@ -19,6 +18,8 @@ pub enum AbstractVariable {
     String,
     /// I32 type.
     Number,
+    /// Boolean type.
+    Boolean,
     /// The type is undefined or is pointless for the type checking.
     /// A type can be replaced by "void" (nothing) when the variable
     /// is never used.
@@ -42,6 +43,8 @@ pub enum Variable {
     Abstract(AbstractVariable),
     /// Signed number on 32 bit is default Number type.
     Number(AtomicI32),
+    /// Boolean.
+    Boolean(AtomicBool),
 }
 
 impl PartialEq for Variable {
@@ -292,12 +295,20 @@ pub fn number(val: i32) -> Arc<Variable> {
     Arc::new(Variable::Number(AtomicI32::new(val)))
 }
 
+pub fn boolean(val: bool) -> Arc<Variable> {
+    Arc::new(Variable::Boolean(AtomicBool::new(val)))
+}
+
 pub fn abstract_string() -> Arc<Variable> {
     Arc::new(Variable::Abstract(AbstractVariable::String))
 }
 
 pub fn abstract_number() -> Arc<Variable> {
     Arc::new(Variable::Abstract(AbstractVariable::Number))
+}
+
+pub fn abstract_boolean() -> Arc<Variable> {
+    Arc::new(Variable::Abstract(AbstractVariable::Boolean))
 }
 
 pub fn abstract_uninit() -> Arc<Variable> {

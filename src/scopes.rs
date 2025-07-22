@@ -102,6 +102,7 @@ pub enum EStatement {
     Function(Function),
     Str(String /* inner text */),
     Num(i32 /* inner signed number */),
+    Bool(bool),
     Compound(RefCell<Compound>),
     Copy(String /* variable name */),
     Ref(VarInfo),
@@ -255,6 +256,7 @@ impl Scopes {
             }
             tree::EStatement::Str(text) => EStatement::Str(text),
             tree::EStatement::Num(num) => EStatement::Num(num),
+            tree::EStatement::Bool(val) => EStatement::Bool(val),
             tree::EStatement::Operation(op) => self.operation(*op, &mut refs, scope, decls),
             tree::EStatement::Compound(c) => {
                 let new_scope = scope.push(line, column);

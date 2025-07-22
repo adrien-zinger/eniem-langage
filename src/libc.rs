@@ -2,7 +2,7 @@ extern crate libc as llibc;
 
 use llibc::{printf /* fflush */};
 
-use std::ffi::CString;
+use std::ffi::{c_int, CString};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -75,6 +75,9 @@ pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
                         printf(s.as_ptr(), cstring.as_ptr())
                     }
                     Variable::Number(number) => printf(s.as_ptr(), number.load(Ordering::SeqCst)),
+                    Variable::Boolean(boolean) => {
+                        printf(s.as_ptr(), boolean.load(Ordering::SeqCst) as c_int)
+                    }
                     _ => {
                         unreachable!("not managed");
                     }

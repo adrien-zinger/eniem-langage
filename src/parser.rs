@@ -25,6 +25,7 @@ fn spacing(s: Span) -> IResult<Span, ()> {
     Ok((s, ()))
 }
 
+/// Parse a multiline comment starting with "/*" and finishing with a "*/"
 fn multiline_comments(s: Span) -> IResult<Span, ()> {
     let (s, _) = tag("/*")(s)?;
     debug!("enter spacing commented {:?}", s);
@@ -35,6 +36,9 @@ fn multiline_comments(s: Span) -> IResult<Span, ()> {
     Ok((s, ()))
 }
 
+/// Parse a right extension to a statement.
+/// It should accept parenthesis (for function calls), bracket for lists etc.
+/// Right now, only function call (extension of size 1) is supported.
 fn extension(s: Span) -> IResult<Span, u8> {
     let (s, _) = spacing(s)?;
     if let Ok((s, _)) = tag::<&str, nom_locate::LocatedSpan<&str>, ()>("(")(s) {
@@ -65,6 +69,7 @@ fn statement(s: Span) -> IResult<Span, Statement> {
         copy_statement,
         string_statement,
         num_statement,
+        bool_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
         operation_statement,
         ref_statement,
@@ -144,8 +149,6 @@ fn copy_statement(s: Span) -> IResult<Span, Statement> {
 fn ref_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter ref {}", s.fragment());
     let (s, _) = spacing(s)?;
-    let (s, _) = not(tag("let")).parse(s)?;
-    let (s, _) = spacing(s)?;
     let (s, _) = opt(tag("ref")).parse(s)?;
     let (s, _) = spacing(s)?;
     let (s, _) = not(tag::<&str, nom_locate::LocatedSpan<&str>, ()>("let"))
@@ -210,8 +213,10 @@ fn test_string() {
     assert_eq!(quoted_string(Span::new("\"\\n\"")).unwrap().1, "\n");
 }
 
+/// Parse a constant number.
+/// It is a basic statement.
 fn num_statement(s: Span) -> IResult<Span, Statement> {
-    debug!("enter string {}", s.fragment());
+    debug!("enter num {}", s.fragment());
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, num) = preceded(opt(tag("-")), digit1).parse(s)?;
@@ -221,7 +226,24 @@ fn num_statement(s: Span) -> IResult<Span, Statement> {
         pos,
         inner: EStatement::Num(num.to_string().parse().unwrap()),
     };
-    debug!("return string");
+    debug!("return num");
+    Ok((s, res))
+}
+
+/// Parse a constant boolean
+fn bool_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter bool {}", s.fragment());
+    let (s, _) = spacing(s)?;
+    let (s, pos) = position(s)?;
+    let (s, val) = alt((tag("true"), tag("false"))).parse(s)?;
+    let (s, _) = spacing(s)?;
+    debug!("bool, fragment: {}", s.fragment());
+    let val = val.to_string() == "true";
+    let res = Statement {
+        pos,
+        inner: EStatement::Bool(val),
+    };
+    debug!("return bool");
     Ok((s, res))
 }
 
@@ -258,11 +280,37 @@ fn test_compound_statement() {
     compound_statement(Span::new("{ let a = (){ \"bar\" } a }")).unwrap();
 }
 
+/// Parsed after "::" in a variable name
+pub fn variable_subname(s: Span) -> IResult<Span, nom_locate::LocatedSpan<&str>> {
+    let (s, _) = not(tag("true")).parse(s)?;
+    let (s, _) = not(tag("false")).parse(s)?;
+    let (s, _) = not(tag("in")).parse(s)?;
+    let (s, _) = not(tag("if")).parse(s)?;
+    let (s, _) = not(tag("as")).parse(s)?;
+    let (s, _) = not(tag("mod")).parse(s)?;
+    let (s, _) = not(tag("let")).parse(s)?;
+    let (s, _) = not(tag("use")).parse(s)?;
+    let (s, _) = not(tag("for")).parse(s)?;
+    let (s, _) = not(tag("else")).parse(s)?;
+    alphanumeric1(s)
+}
+
+/// Parse a variable name
 pub fn variable_name(s: Span) -> IResult<Span, String> {
     let (s, _) = spacing(s)?;
+    let (s, _) = not(tag("true")).parse(s)?;
+    let (s, _) = not(tag("false")).parse(s)?;
+    let (s, _) = not(tag("in")).parse(s)?;
+    let (s, _) = not(tag("if")).parse(s)?;
+    let (s, _) = not(tag("else")).parse(s)?;
+    let (s, _) = not(tag("as")).parse(s)?;
+    let (s, _) = not(tag("mod")).parse(s)?;
+    let (s, _) = not(tag("let")).parse(s)?;
+    let (s, _) = not(tag("use")).parse(s)?;
+    let (s, _) = not(tag("for")).parse(s)?;
     let (s, varname) = recognize(pair(
         verify(anychar, |&c| c.is_lowercase()),
-        many0_count(preceded(opt(cchar('_')), alphanumeric1)),
+        many0_count(preceded(opt(cchar('_')), variable_subname)),
     ))
     .parse(s)?;
     let (s, _) = spacing(s)?;
@@ -278,6 +326,13 @@ fn test_variable_name() {
     assert!(variable_name(Span::new("foo32_bar")).is_ok());
     assert!(variable_name(Span::new("32foo")).is_err());
     assert!(variable_name(Span::new("_32foo")).is_err());
+
+    // Reserved world should throw an error
+    assert!(variable_name(Span::new("true")).is_err());
+    assert!(variable_name(Span::new("false")).is_err());
+    assert!(variable_name(Span::new("let")).is_err());
+    assert!(variable_name(Span::new("if")).is_err());
+    assert!(variable_name(Span::new("else")).is_err());
 }
 
 pub fn function_statement(s: Span) -> IResult<Span, Statement> {
@@ -414,6 +469,7 @@ pub fn param_statement(s: Span) -> IResult<Span, Statement> {
         copy_statement,
         string_statement,
         num_statement,
+        bool_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
         operation_statement,
         ref_statement,
@@ -476,6 +532,7 @@ pub fn primitive_operation_statement(s: Span) -> IResult<Span, Statement> {
         copy_statement,
         string_statement,
         num_statement,
+        bool_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
         ref_statement,
     ))

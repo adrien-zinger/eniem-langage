@@ -50,6 +50,7 @@ impl Interpreter {
             EStatement::Compound(compound) => self.exec_compound(job, statement, compound, latest),
             EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
             EStatement::Num(val) => self.exec_num(*val, job, latest),
+            EStatement::Bool(val) => self.exec_bool(*val, job, latest),
             EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
