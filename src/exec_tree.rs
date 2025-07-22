@@ -53,6 +53,7 @@ pub enum StdFunction {
     Printf,
     I32add,
     I32mult,
+    I32notEqual,
     #[default]
     Nope,
 }
@@ -264,6 +265,7 @@ impl Scope2ETree {
                         "printf" => StdFunction::Printf,
                         "i32_mult" => StdFunction::I32mult,
                         "i32_add" => StdFunction::I32add,
+                        "i32_not_equal" => StdFunction::I32notEqual,
                         &_ => panic!("{} not found in this scope.", n.name.name),
                     };
                     let mut call = self.call(n);

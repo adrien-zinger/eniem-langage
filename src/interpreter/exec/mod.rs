@@ -106,6 +106,9 @@ impl Interpreter {
                 StdFunction::I32mult => {
                     abstract_i32_mult(params[0].clone(), params[1].clone()).unwrap()
                 }
+                StdFunction::I32notEqual => {
+                    abstract_i32_not_equal(params[0].clone(), params[1].clone()).unwrap()
+                }
                 StdFunction::Printf => memory::abstract_number(),
                 _ => todo!(),
             }
@@ -115,6 +118,7 @@ impl Interpreter {
                 StdFunction::Itoa => todo!("itoa not implemented"),
                 StdFunction::I32add => i32_add(params[0].clone(), params[1].clone()),
                 StdFunction::I32mult => i32_mult(params[0].clone(), params[1].clone()),
+                StdFunction::I32notEqual => i32_not_equal(params[0].clone(), params[1].clone()),
                 StdFunction::Printf => memory::number(builtin_printf(&params)),
                 _ => todo!(),
             }
@@ -124,6 +128,9 @@ impl Interpreter {
         self.complete_job(job);
     }
 
+    /// Definitely try to execute a list of expression. That feature is used
+    /// by the abstract interpreter only. It is used to check if functions
+    /// type are not modifyied over the time.
     fn exec_expressions(&self, job: Job, exprs: &[Expression]) {
         if self.is_abstract {
             debug!("start interpreting function compound (abstract)");
@@ -164,6 +171,7 @@ impl Interpreter {
             debug!("abstract interpreter, function has all variable ready");
 
             let fc = &mut fc.lock().unwrap();
+
             // All input are ready, check if we already resolved the function
             // call.
             if let Some(output) = self

@@ -334,6 +334,7 @@ impl Scopes {
                     || c.name == "atoi"
                     || c.name == "i32_add"
                     || c.name == "i32_mult"
+                    || c.name == "i32_not_equal"
                 {
                 } else {
                     panic!("unknown std function {}", c.name);
@@ -379,7 +380,9 @@ impl Scopes {
                 tree::Operator::NotEqual => "not_equal",
                 tree::Operator::Minus => "minus",
                 tree::Operator::Plus => "plus",
-                _ => todo!(),
+                tree::Operator::Not => todo!("operator not"),
+                tree::Operator::Mult => todo!("operator mult"),
+                tree::Operator::Empty => unreachable!(),
             }
         }
 
@@ -391,6 +394,9 @@ impl Scopes {
                 // Set function parameter
                 let param = self.statement(operation.statement, scope.clone(), decls.clone());
                 extend_refs(refs, &param.refs, &scope);
+                if let tree::Operator::Empty = operation.operator {
+                    return param.inner;
+                }
                 (get_name(&operation.operator), vec![param])
             }
             tree::Operation::Binary(operation) => {

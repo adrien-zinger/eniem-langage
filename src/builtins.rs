@@ -40,3 +40,22 @@ pub fn i32_mult(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
         _ => unreachable!(),
     }
 }
+
+pub fn abstract_i32_not_equal(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Variable>, String> {
+    match (&*a, &*b) {
+        (
+            Variable::Abstract(AbstractVariable::Number),
+            Variable::Abstract(AbstractVariable::Number),
+        ) => Ok(memory::abstract_boolean()),
+        _ => Err("i32_not_equal only accept i32 parameters".to_string()),
+    }
+}
+
+pub fn i32_not_equal(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
+    match (&*a, &*b) {
+        (Variable::Number(a), Variable::Number(b)) => {
+            memory::boolean(a.load(Ordering::SeqCst) != b.load(Ordering::SeqCst))
+        }
+        _ => unreachable!(),
+    }
+}

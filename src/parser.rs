@@ -52,6 +52,9 @@ fn extension(s: Span) -> IResult<Span, u8> {
 }
 
 fn statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter statement");
+    debug!("statement fragment: {}", s.fragment());
+
     // case 1: ';' termination is optional
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
@@ -66,13 +69,15 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     debug!("statement case 2, fragment: {}", s.fragment());
     let (s, statement) = alt((
         branch_statement,
+        operation_statement,
+        /* Just comment to be sure I wouldn't want to put it back here.
         copy_statement,
         string_statement,
         num_statement,
         bool_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
-        operation_statement,
         ref_statement,
+        */
     ))
     .parse(s)?;
     let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
@@ -323,7 +328,12 @@ fn test_variable_name() {
     assert!(variable_name(Span::new("  a  ")).is_ok());
     assert!(variable_name(Span::new("foobar")).is_ok());
     assert!(variable_name(Span::new("foo_bar")).is_ok());
-    assert!(variable_name(Span::new("foo32_bar")).is_ok());
+    let (s, foo32_bar) = variable_name(Span::new("foo32_bar")).unwrap();
+    assert_eq!(foo32_bar.to_string(), "foo32_bar");
+    assert!(s.fragment().is_empty());
+    let (s, not_equal) = variable_name(Span::new("not_equal")).unwrap();
+    assert_eq!(not_equal.to_string(), "not_equal");
+    assert!(s.fragment().is_empty());
     assert!(variable_name(Span::new("32foo")).is_err());
     assert!(variable_name(Span::new("_32foo")).is_err());
 
@@ -337,10 +347,13 @@ fn test_variable_name() {
 
 pub fn function_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter function");
+    debug!("function span: {:?}", s);
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, _) = tag("(")(s)?;
+    debug!("try to read parameters span: {:?}", s);
     let (s, args) = separated_list0(tag(","), delimited(spacing, alpha1, spacing)).parse(s)?;
+    debug!("succeed to read parameters span: {:?}", s);
     let (s, _) = tag(")")(s)?;
     let (s, _) = spacing(s)?;
     debug!("function statement enter in compound");
@@ -391,8 +404,23 @@ pub fn declaration(s: Span) -> IResult<Span, Expression> {
     let (s, _) = tag("let")(s)?;
     debug!("enter declaration let confirmed {}", s.fragment());
     let (s, _) = multispace1(s)?;
-    let (s, var) = delimited(spacing, alpha1, spacing).parse(s)?;
+    debug!("let space confirmed");
+    let (s, _) = spacing(s)?;
+    if variable_subname(s).is_err() {
+        println!("invalid variable name {:?}", s);
+    }
+
+    debug!("var name confirmed");
+    let (s, var) = delimited(spacing, variable_name, spacing).parse(s)?;
+    debug!("var name confirmed again");
+    debug!("span with '=' expected {}", s.fragment());
+
+    if tag::<_, _, nom::error::Error<_>>("=")(s).is_err() {
+        println!(" the = was very expected here");
+    }
+
     let (s, _) = tag("=")(s)?;
+    debug!("declaration, try to parse right: {}", s.fragment());
     let (s, to_assign) = delimited(spacing, statement, spacing).parse(s)?;
     debug!("declaration, fragment: {}", s.fragment());
 
@@ -408,6 +436,7 @@ pub fn declaration(s: Span) -> IResult<Span, Expression> {
         pos,
         inner: EExpression::Declaration(assignation),
     };
+    debug!("return declaration:\n {:?}", res);
     Ok((s, res))
 }
 
@@ -464,6 +493,7 @@ fn test_assignation() {
 pub fn param_statement(s: Span) -> IResult<Span, Statement> {
     alt((
         branch_statement,
+        operation_statement,
         function_statement,
         compound_statement,
         copy_statement,
@@ -471,7 +501,6 @@ pub fn param_statement(s: Span) -> IResult<Span, Statement> {
         num_statement,
         bool_statement,
         call_statement, /* to check before ref, because it's ref + "("... */
-        operation_statement,
         ref_statement,
     ))
     .parse(s)
@@ -517,6 +546,11 @@ fn test_call_statement() {
     assert!(call_statement(Span::new("foo  (copy a, copy b)")).is_ok());
     assert!(call_statement(Span::new("await foo()")).is_ok());
     assert!(call_statement(Span::new("await()")).is_err());
+    let (_, call) = call_statement(Span::new("foo!()")).unwrap();
+    match call.inner {
+        EStatement::StdCall(_) => {}
+        _ => panic!("unexpected call"),
+    }
 }
 
 /// Primitive unit of an operation which is:
@@ -616,6 +650,7 @@ pub fn add_operation(s: Span) -> IResult<Span, Operation> {
         "!=" => Operator::NotEqual,
         _ => unreachable!(),
     };
+    debug!("successfuly found an operation");
     Ok((
         s,
         Operation::Binary(Box::new(BinaryOperation {
@@ -632,30 +667,52 @@ pub fn add_operation(s: Span) -> IResult<Span, Operation> {
 /// Can be used as function parameter, right part of an assignation,
 /// into a branch test.
 pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
+    debug!("enter in operation statement");
     let (s, op) = add_operation(s)?;
     let (s, pos) = position(s)?;
-    if let Operation::Unary(op) = &op {
+    if let Operation::Unary(op) = op {
         if let Operator::Empty = op.operator {
-            return Ok((
+            Ok((
                 s,
                 Statement {
                     pos,
-                    inner: match &op.statement.inner {
+                    inner: match op.statement.inner {
                         EStatement::Ref(r) => EStatement::Ref(r.clone()),
-                        _ => todo!(),
+                        EStatement::Str(r) => EStatement::Str(r.clone()),
+                        EStatement::Num(r) => EStatement::Num(r.clone()),
+                        EStatement::Function(r) => EStatement::Function(r),
+                        EStatement::Bool(r) => EStatement::Bool(r.clone()),
+                        EStatement::Compound(r) => EStatement::Compound(r),
+                        EStatement::Copy(r) => EStatement::Copy(r.clone()),
+                        EStatement::Call(r) => EStatement::Call(r),
+                        EStatement::StdCall(r) => EStatement::StdCall(r),
+                        EStatement::Branch(r) => EStatement::Branch(r),
+                        EStatement::Operation(r) => EStatement::Operation(r),
                     },
                 },
-            ));
+            ))
+        } else {
+            Ok((
+                s,
+                Statement {
+                    pos,
+                    inner: EStatement::Operation(Box::new(Operation::Unary(op))),
+                },
+            ))
         }
+    } else {
+        Ok((
+            s,
+            Statement {
+                pos,
+                inner: EStatement::Operation(Box::new(op)),
+            },
+        ))
     }
-    Ok((
-        s,
-        Statement {
-            pos,
-            inner: EStatement::Operation(Box::new(op)),
-        },
-    ))
 }
+
+#[test]
+fn test_operation() {}
 
 fn ext_path(s: Span) -> IResult<Span, String> {
     let (s, path) =
