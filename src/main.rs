@@ -30,12 +30,11 @@ fn main() {
         "\n\n --------- ast ------\n\n {:#?} \n\n ----------------------",
         ast
     );
-    /* dum ast
     use std::io::Write;
     std::fs::File::create("ast")
         .unwrap()
-        .write_all(format!("{:#?}", ast).as_bytes()).unwrap();
-    */
+        .write_all(format!("{:#?}", ast).as_bytes())
+        .unwrap();
     let mut scopes = scopes::Scopes::default();
     let ast = scopes.check(ast);
     debug!(

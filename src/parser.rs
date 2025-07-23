@@ -241,6 +241,7 @@ fn bool_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, val) = alt((tag("true"), tag("false"))).parse(s)?;
+    alt((multispace1, tag(")"), tag(","))).parse(s)?;
     let (s, _) = spacing(s)?;
     debug!("bool, fragment: {}", s.fragment());
     let val = val.to_string() == "true";
