@@ -1,6 +1,32 @@
-let identity = (var) { printf!("real identity\n"); var }
+
+/* identité a -> a */
+let identity = (var) {
+	printf!("real identity\n");
+	var
+}
+
+identity("dfsqfdqs")
+
+identity(12)
+
 let a = 0
 await let b = identity(a)
 
 identity = (var) { printf!("fake identity\n"); 0 }
+
 a = identity(a)
+
+---
+
+let not_equal = () {
+ if type Fruit -> code custom
+ else std::not_equal
+}
+
+Apple != Orange
+
+---
+
+not_equal = T: Ord => (a: T, b: T) {
+ !a.eq(b)
+}

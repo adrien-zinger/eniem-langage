@@ -51,11 +51,17 @@ fn extension(s: Span) -> IResult<Span, u8> {
     Ok((s, 0))
 }
 
+/// A statement can split into a function, a compound, a branch or an
+/// operation. Notice that the operation can split into any other
+/// primitive statement in `primitive_operation_statement`.
 fn statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter statement");
     debug!("statement fragment: {}", s.fragment());
 
-    // case 1: ';' termination is optional
+	if is_compound_statement(s).is_ok() {
+		let statement = compound_statement(s)?;
+        let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
+	}
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
         debug!("function or compound statement found");
@@ -70,14 +76,6 @@ fn statement(s: Span) -> IResult<Span, Statement> {
     let (s, statement) = alt((
         branch_statement,
         operation_statement,
-        /* Just comment to be sure I wouldn't want to put it back here.
-        copy_statement,
-        string_statement,
-        num_statement,
-        bool_statement,
-        call_statement, /* to check before ref, because it's ref + "("... */
-        ref_statement,
-        */
     ))
     .parse(s)?;
     let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
@@ -153,12 +151,16 @@ fn copy_statement(s: Span) -> IResult<Span, Statement> {
 
 fn ref_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter ref {}", s.fragment());
+    let (s, pos) = position(s)?;
     let (s, _) = spacing(s)?;
     let (s, _) = opt(tag("ref")).parse(s)?;
     let (s, _) = spacing(s)?;
-    let (s, _) = not(tag::<&str, nom_locate::LocatedSpan<&str>, ()>("let"))
-        .parse(s)
-        .unwrap();
+	
+    let check = not(tag::<&str, nom_locate::LocatedSpan<&str>, ()>("let")).parse(s);
+	if check.is_err() {
+		println!("Syntax error at {:?}, {:?}, {}", pos, s, pos.get_column());
+	}
+
     let (s, var) = alpha1(s)?;
     let (s, pos) = position(s)?;
     let res = Statement {
@@ -251,6 +253,11 @@ fn bool_statement(s: Span) -> IResult<Span, Statement> {
     };
     debug!("return bool");
     Ok((s, res))
+}
+
+fn is_compound_satement(s: Span) -> IResult<Span, ()> {
+    let (s, _) = opt(delimited(spacing, tag("await"), spacing)).parse(s)?;
+    return delimited(spacing, tag("{"), spacing).parse(s).map(|_| (s,()));
 }
 
 fn compound_statement(s: Span) -> IResult<Span, Statement> {
@@ -346,14 +353,24 @@ fn test_variable_name() {
     assert!(variable_name(Span::new("else")).is_err());
 }
 
+pub fn function_statement_parameter(s: Span) -> IResult<Span, String> {
+	let (s, pos) = position(s)?;
+	let vname = variable_name(s);
+	if vname.is_err() {
+		println!("spot real error");
+		return Ok((s, String::from("tmp")));
+	}
+	vname
+}
+
 pub fn function_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter function");
-    debug!("function span: {:?}", s);
+    println!("function span: {:?}", s);
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, _) = tag("(")(s)?;
     debug!("try to read parameters span: {:?}", s);
-    let (s, args) = separated_list0(tag(","), delimited(spacing, alpha1, spacing)).parse(s)?;
+    let (s, args) = separated_list0(tag(","), delimited(spacing, function_statement_parameter, spacing)).parse(s)?;
     debug!("succeed to read parameters span: {:?}", s);
     let (s, _) = tag(")")(s)?;
     let (s, _) = spacing(s)?;

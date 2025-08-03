@@ -1,4 +1,24 @@
+let not_equal = (left, right) {
+	i32_not_equal!(left, right)
+}
 
-let a = true
-printf!("%d\n", a)
-printf!("%d\n", false)
+let not0 = (var) {
+	var != 0
+}
+
+let maybe_zero = 10
+
+let div = (var: truc) {}
+
+/*
+let div = (num: number, den: not0) {
+	if verified is not0 {
+		/* ok */
+	} else {
+		panic!("fsdqfqs")
+	}
+}
+*/
+
+i32_div!(a, b)
+
