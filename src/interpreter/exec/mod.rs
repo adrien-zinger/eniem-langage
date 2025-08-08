@@ -54,8 +54,9 @@ impl Interpreter {
             EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
-            EStatement::Ref(ref_id) => self.exec_ref(&ref_id.to_owned(), job, latest),
-            EStatement::Function(v) => self.exec_function(v, job, latest),
+            EStatement::Ref(var) => self.exec_ref(&var.to_owned(), None, job, latest),
+            EStatement::RefAs((var, ty)) => self.exec_ref(&var.to_owned(), Some(ty), job, latest),
+            EStatement::Function(var) => self.exec_function(var, job, latest),
             EStatement::Branch(_branch) => todo!(),
         }
     }

@@ -25,6 +25,8 @@ pub enum AbstractVariable {
     /// is never used.
     #[default]
     Uninit,
+    /// Union, store list of types aggregated
+    Union(Vec<String>),
 }
 
 /// Variable tag and a reference to that variable.
@@ -45,6 +47,8 @@ pub enum Variable {
     Number(AtomicI32),
     /// Boolean.
     Boolean(AtomicBool),
+    /// Union of multiple types (variable + type names)
+    Union((Arc<Variable>, Vec<String>)),
 }
 
 impl PartialEq for Variable {
@@ -317,4 +321,46 @@ pub fn abstract_uninit() -> Arc<Variable> {
 
 pub fn function(val: Function, captures: Vec<(String, Arc<Variable>)>) -> Arc<Variable> {
     Arc::new(Variable::Function(Mutex::new((val, captures))))
+}
+
+pub fn to_boolean(var: &Arc<Variable>) -> Option<bool> {
+    match &**var {
+        Variable::Boolean(val) => Some(val.load(Ordering::SeqCst)),
+        Variable::Abstract(AbstractVariable::Boolean) => Some(true),
+        _ => None,
+    }
+}
+
+/// Return a new variable with the new type
+pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
+    let var = match &**var {
+        Variable::Boolean(val) => boolean(val.load(Ordering::SeqCst)),
+        Variable::Function(val) => {
+            let (fun, cap) = val.lock().unwrap().clone();
+            function(fun, cap)
+        }
+        Variable::String(val) => string(&val.lock().unwrap()),
+        Variable::Empty => panic!("cannot cast uninitialized type"),
+        Variable::Number(val) => number(val.load(Ordering::SeqCst)),
+        Variable::Union((val, types)) => {
+            let val = match &**val {
+                Variable::Boolean(val) => boolean(val.load(Ordering::SeqCst)),
+                Variable::Function(val) => {
+                    let (fun, cap) = val.lock().unwrap().clone();
+                    function(fun, cap)
+                }
+                Variable::String(val) => string(&val.lock().unwrap()),
+                Variable::Empty => unreachable!("not allowed"),
+                Variable::Number(val) => number(val.load(Ordering::SeqCst)),
+                Variable::Union(val) => unreachable!("not allowed"),
+                Variable::Abstract(_) => val.clone(),
+            };
+            let mut types = types.clone();
+            types.push(ty);
+            return Arc::new(Variable::Union((val, types)));
+        }
+        Variable::Abstract(_) => var.clone(),
+    };
+
+    Arc::new(Variable::Union((var, vec![ty])))
 }

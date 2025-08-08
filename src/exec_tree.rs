@@ -86,6 +86,7 @@ pub enum EStatement {
     Compound(Arc<Compound>),
     Copy(String /* variable name */),
     Ref(String),
+    RefAs((String, String)),
     Call(Call),
     StdCall(Call),
     Branch(Arc<Branch>),
@@ -256,6 +257,10 @@ impl Scope2ETree {
                 scopes::EStatement::Ref(n) => EStatement::Ref(format!(
                     "{}#{}:{}:{}",
                     n.scope.name, n.line, n.column, n.name
+                )),
+                scopes::EStatement::RefAs((n, t)) => EStatement::RefAs((
+                    format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name),
+                    format!("{}#{}:{}:{}", t.scope.name, t.line, t.column, t.name),
                 )),
                 scopes::EStatement::Call(n) => EStatement::Call(self.call(n)),
                 scopes::EStatement::StdCall(n) => {

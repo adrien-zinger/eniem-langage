@@ -215,7 +215,13 @@ impl Interpreter {
     /// box of the left part by what's in the box of the right part. Modifying
     /// the right part after a such action will modify the left part as a side
     /// effect. See `crate::memory` module.
-    fn assign_ref_statement(&self, input: &str, assign: &Assignation, job: Job) {
+    fn assign_ref_statement(
+        &self,
+        input: &str,
+        cast_as: Option<&str>,
+        assign: &Assignation,
+        job: Job,
+    ) {
         debug!("try to assign {} from {input}", assign.var);
         let right_part = job.scope.memory.find(input, &job);
         if right_part.is_none() {
@@ -223,15 +229,56 @@ impl Interpreter {
             self.schedule(job);
             return;
         }
-        let val = right_part.unwrap();
+
+        let mut right_part = right_part.unwrap();
+
+        if let Some(cast_as) = cast_as {
+            if self.is_abstract {
+                right_part = memory::add_type(&right_part, cast_as.to_string());
+            } else {
+                let cast_key = format!("{}::{}", cast_as, job.scope.id);
+                if let Some(cast_res) = job.scope.memory.get(&cast_key) {
+                    if let Some(is_casted) = memory::to_boolean(&cast_res) {
+                        if is_casted {
+                            debug!("cast sucess");
+                            right_part = memory::add_type(&right_part, cast_as.to_string());
+                        } else {
+                            panic!("cast error");
+                        }
+                    } else {
+                        debug!("waiting cast check result");
+                        self.schedule(job);
+                        return;
+                    }
+                } else {
+                    let call = Call {
+                        block_on: false,
+                        params: vec![],
+                        name: cast_as.to_string(),
+                        std: StdFunction::default(),
+                    };
+                    if self
+                        .call_statement(&call, job.clone(), false, Some(cast_key), true)
+                        .is_ok()
+                    {
+                        debug!("call cast check function, wait now for {cast_key} to be init");
+                        self.schedule(job);
+                        return;
+                    } else {
+                        right_part = memory::add_type(&right_part, cast_as.to_string());
+                    }
+                }
+            }
+        }
+
         let key = format!("{}::{}", assign.var, job.scope.id);
-        debug!("assign {} from {input}, {:?}", assign.var, val);
+        debug!("assign {} from {input}, {:?}", assign.var, right_part);
         if self.is_abstract {
-            job.scope.memory.abstr_write(key, val);
+            job.scope.memory.abstr_write(key, right_part);
         } else if assign.modify {
-            job.scope.memory.write_copy(key, val);
+            job.scope.memory.write_copy(key, right_part);
         } else {
-            job.scope.memory.write(key, val);
+            job.scope.memory.write(key, right_part);
         }
         self.complete_job(job);
     }
@@ -263,7 +310,8 @@ impl Interpreter {
             EStatement::Call(input) => self.assign_call(input, assign, job),
             EStatement::StdCall(input) => self.assign_std_call(input, assign, job),
             EStatement::Copy(_c) => todo!(),
-            EStatement::Ref(input) => self.assign_ref_statement(input, assign, job),
+            EStatement::Ref(input) => self.assign_ref_statement(input, None, assign, job),
+            EStatement::RefAs((var, ty)) => self.assign_ref_statement(var, Some(ty), assign, job),
             EStatement::Branch(_branch) => todo!(),
         }
     }

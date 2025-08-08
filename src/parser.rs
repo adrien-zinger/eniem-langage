@@ -5,7 +5,6 @@ use nom::bytes::complete::{tag, take_till, take_until};
 use nom::character::complete::{alpha1, alphanumeric1, anychar, char as cchar, digit1};
 use nom::character::complete::{multispace0, multispace1};
 use nom::combinator::{not, opt, recognize, verify};
-use nom::error::ParseError;
 use nom::multi::{many0, many0_count, many1, separated_list0, separated_list1};
 use nom::sequence::{delimited, pair, preceded};
 use nom::IResult;
@@ -146,27 +145,39 @@ fn copy_statement(s: Span) -> IResult<Span, Statement> {
     Ok((s, res))
 }
 
+/** Get cast type */
+fn cast_as_type(s: Span) -> IResult<Span, String> {
+    let (s, _) = tag("as")(s)?;
+    let (s, ty) = variable_name(s)?;
+    return Ok((s, ty));
+}
+
 fn ref_statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter ref {}", s.fragment());
     let (s, pos) = position(s)?;
     let (s, _) = spacing(s)?;
     let (s, _) = opt(tag("ref")).parse(s)?;
     let (s, _) = spacing(s)?;
-
-    let check = not(tag::<&str, nom_locate::LocatedSpan<&str>, ()>("let")).parse(s);
-
-    if check.is_err() {
-        println!("Syntax error at {:?}, {:?}, {}", pos, s, pos.get_column());
-    }
-
     let (s, var) = variable_name(s)?;
-    let (s, pos) = position(s)?;
-    let res = Statement {
-        pos,
-        inner: EStatement::Ref(var.to_string()),
-    };
-    debug!("return ref");
-    Ok((s, res))
+    let (s, _) = spacing(s)?;
+
+    if check_tag("as", s) {
+        let (s, ty) = cast_as_type(s)?;
+        let res = Statement {
+            pos,
+            inner: EStatement::RefAs((var.to_string(), ty)),
+        };
+
+        debug!("return ref as");
+        Ok((s, res))
+    } else {
+        let res = Statement {
+            pos,
+            inner: EStatement::Ref(var.to_string()),
+        };
+        debug!("return ref");
+        Ok((s, res))
+    }
 }
 
 fn string_statement(s: Span) -> IResult<Span, Statement> {
@@ -718,6 +729,7 @@ pub fn operation_statement(s: Span) -> IResult<Span, Statement> {
                     pos,
                     inner: match op.statement.inner {
                         EStatement::Ref(r) => EStatement::Ref(r.clone()),
+                        EStatement::RefAs(r) => EStatement::RefAs(r.clone()),
                         EStatement::Str(r) => EStatement::Str(r.clone()),
                         EStatement::Num(r) => EStatement::Num(r.clone()),
                         EStatement::Function(r) => EStatement::Function(r),

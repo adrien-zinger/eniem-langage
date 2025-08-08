@@ -106,6 +106,7 @@ pub enum EStatement {
     Compound(RefCell<Compound>),
     Copy(String /* variable name */),
     Ref(VarInfo),
+    RefAs((VarInfo, VarInfo)),
     Call(Call),
     StdCall(Call),
     Branch(Box<Branch>),
@@ -275,6 +276,30 @@ impl Scopes {
                         .push(format!("{} not declared in this scope.", v));
                 }
                 EStatement::Copy(v)
+            }
+            tree::EStatement::RefAs((var, ty)) => {
+                // check scope of v and t.
+                let var_info = if let Some(info) = lookup(&var, &decls) {
+                    if info.scope != scope {
+                        refs.insert(info.clone());
+                    }
+                    info
+                } else {
+                    self.errors
+                        .push(format!("{} not declared in this scope.", var));
+                    todo!("create new var info on the fly")
+                };
+
+                let ty_info = if let Some(info) = lookup(&ty, &decls) {
+                    if info.scope != scope {
+                        refs.insert(info.clone());
+                    }
+                    info
+                } else {
+                    todo!("create new var info on the fly")
+                };
+
+                EStatement::RefAs((var_info, ty_info))
             }
             tree::EStatement::Ref(v) => {
                 if let Some(info) = lookup(&v, &decls) {

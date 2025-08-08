@@ -47,6 +47,7 @@ pub enum EStatement<'a> {
     StdCall(Call<'a>),
     Operation(Box<Operation<'a>>),
     Branch(Box<Branch<'a>>),
+    RefAs((String, String)),
 }
 
 #[derive(Debug)]

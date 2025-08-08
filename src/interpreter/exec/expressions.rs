@@ -157,7 +157,7 @@ impl Interpreter {
     }
 
     /// Execute a Ref expression statement. Just an expression with a reference.
-    pub(super) fn exec_ref(&self, ref_id: &str, job: Job, latest: bool) {
+    pub(super) fn exec_ref(&self, ref_id: &str, cast_as: Option<&str>, job: Job, latest: bool) {
         debug!("process job with single reference {:?}", v);
         if latest {
             if let Some(val) = job.scope.memory.find(ref_id, &job) {
