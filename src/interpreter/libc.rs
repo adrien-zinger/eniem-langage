@@ -6,7 +6,7 @@ use std::ffi::{c_int, CString};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use crate::memory::{self, AbstractVariable, Variable};
+use super::memory::{self, *};
 
 extern "C" {
     // static mut stdout: *mut llibc::FILE;

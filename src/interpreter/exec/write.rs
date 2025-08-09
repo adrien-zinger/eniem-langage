@@ -1,9 +1,7 @@
-use crate::{
-    interpreter::{
-        job::{EJob, Job},
-        Interpreter, WriteJob,
-    },
+use super::super::{
+    job::{EJob, Job},
     memory::{BoxVariable, Variable},
+    Interpreter, WriteJob,
 };
 use std::sync::atomic::Ordering;
 

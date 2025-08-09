@@ -1,8 +1,4 @@
-mod builtins;
-mod exec_tree;
 mod interpreter;
-mod libc;
-mod memory;
 mod parser;
 mod scopes;
 mod tree;

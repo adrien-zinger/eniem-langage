@@ -1,12 +1,9 @@
-use crate::{
+use super::super::{
     exec_tree::{Compound, Function, Statement},
-    interpreter::{
-        job::{EJob, Job},
-        Interpreter,
-    },
-    memory::{self},
-    Scope,
+    job::{EJob, Job},
+    memory, Interpreter, Scope,
 };
+
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,

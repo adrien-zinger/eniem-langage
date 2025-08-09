@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::memory::{self, *};
+use super::memory::{self, *};
 use std::sync::atomic::Ordering;
 
 pub fn abstract_i32_add(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<Variable>, String> {

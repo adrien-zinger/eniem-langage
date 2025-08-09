@@ -1,11 +1,11 @@
 //! Interpretation of an assignation expression.
-use crate::memory::{self, *};
+use memory;
 
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use crate::exec_tree;
 use crate::interpreter::{job::*, *};
+use exec_tree;
 
 macro_rules! debug {
     ($($rest:tt)*) => {

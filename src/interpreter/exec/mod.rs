@@ -7,14 +7,13 @@
 
 use crate::interpreter::job::{EJob, Job};
 
-use crate::{
+use super::{
     builtins::*,
+    exec_tree::*,
     libc::*,
     memory::{self, AbstractVariable, Variable},
     Interpreter,
 };
-
-use crate::exec_tree::*;
 
 mod calls;
 mod expressions;

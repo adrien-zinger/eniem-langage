@@ -2,18 +2,22 @@
 //!
 //! Contains both abstract interpreter and normal interpreter
 //! implementation.
-use crate::exec_tree::*;
-use crate::memory::{self, *};
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod assignation;
+mod builtins;
 mod exec;
-pub(crate) mod job;
+pub mod exec_tree;
+mod libc;
+mod memory;
 
+pub(crate) mod job;
+use exec_tree::*;
 use job::*;
+use memory::*;
 
 macro_rules! debug {
     ($($rest:tt)*) => {
