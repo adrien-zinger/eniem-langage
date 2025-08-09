@@ -1,9 +1,6 @@
 //! Interpretation of an assignation expression.
 use memory;
 
-use std::sync::atomic::AtomicU64;
-use std::sync::Arc;
-
 use crate::interpreter::{job::*, *};
 use exec_tree;
 
@@ -15,59 +12,7 @@ macro_rules! debug {
 }
 
 impl Interpreter {
-    /// Interpreter detected a compound assignation.
-    ///
-    /// `let foo = { ... }`
-    ///
-    /// A compound assignation must:
-    /// 1. Create a new scope for that compound
-    ///     - Register all compound declarations for an
-    ///       memory management function. (to be defined)
-    ///     - Create a Write Job that will put the compound
-    ///       result into the variable `foo`. That Job is
-    ///       pushed in queue after compound full resolution.
-    ///     - Create a new memory that contain an alias to
-    ///       references extern (in upper scopes).
-    /// 2. Register the compound inner expression list within the
-    ///    scope by calling `Interpreter::expressions`.
-    fn assign_compound(&self, input: &Arc<exec_tree::Compound>, assign: &Assignation, job: Job) {
-        debug!("assignation create a scope");
-        let value = BoxVariable::default();
-        debug!("scope decls: {:?}", input.decls);
-        debug!("scope refs: {:?}", assign.to_assign.refs);
-        let new_scope_id = self.new_id();
-        let decls = input
-            .decls
-            .iter()
-            .map(|id| format!("{}::{}", id, new_scope_id))
-            .collect();
-
-        let job = Job {
-            inner: EJob::Write(WriteJob {
-                tag: format!("{}::{}", assign.var, job.scope.id),
-                var: value.clone(),
-                decls,
-                modify: assign.modify,
-            })
-            .into(),
-            scope: job.scope,
-            next: job.next,
-            fc: None,
-        };
-
-        let scope = Arc::new(Scope {
-            id: new_scope_id,
-            len: AtomicU64::new(input.inner.len() as u64),
-            memory: job
-                .scope
-                .memory
-                .new(&assign.to_assign.refs, new_scope_id, job.scope.id),
-            value,
-            job: Some(job),
-        });
-
-        self.expressions(&input.inner, scope);
-    }
+    
 
     /// Assign directly a value into memory and complete the Job.
     /// See `Interpreter::complete_job` in common.rs.

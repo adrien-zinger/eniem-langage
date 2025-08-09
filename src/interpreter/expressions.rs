@@ -1,13 +1,10 @@
 use super::{
-    exec_tree::{Compound, Function, Statement},
-    job::{EJob, Job},
-    memory, Interpreter, Scope,
+    exec_tree::*,
+    job::*,
+	*
 };
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
+use std::sync::atomic::Ordering;
 
 macro_rules! debug {
     ($($rest:tt)*) => {
@@ -31,71 +28,6 @@ impl Interpreter {
         false
     }
 
-    /// Create a new Scope for a compound.
-    /// Used only for a left value. Assigned compound are managed
-    /// in `assignation` module.
-    fn new_compound_scope(
-        &self,
-        job: Job,
-        statement: &Statement,
-        compound: &Compound,
-        latest: bool,
-    ) -> Arc<Scope> {
-        let value = job.scope.get_new_value(self.is_abstract, latest);
-        let new_scope_id = self.new_id();
-        let decls = compound
-            .decls
-            .iter()
-            .map(|id| format!("{}::{}", id, new_scope_id))
-            .collect();
-        debug!("scope refs: {:?}", statement.refs);
-        let memory = job
-            .scope
-            .memory
-            .new(&statement.refs, new_scope_id, job.scope.id);
-        // Create a parent Job Empty, without function call.
-        let parent_job = Job {
-            inner: EJob::Empty((value.clone(), decls)).into(),
-            next: job.next,
-            scope: job.scope,
-            fc: None,
-        };
-        Arc::new(Scope {
-            id: new_scope_id,
-            len: AtomicU64::new(compound.inner.len() as u64),
-            value,
-            memory,
-            job: Some(parent_job),
-        })
-    }
-
-    /// Execute a *Statement Expression* with a compound form.
-    ///
-    /// When `exec_compound` is called:
-    ///
-    /// ```
-    /// let a = { ... } /* not a compound, this is assignation */
-    /// { ... }         /* this is a compound */
-    /// mod { ... }     /* modules are specific compounds, exec_compound is called
-    /// ```
-    ///
-    /// 1. If its a module, return, see `Interpreter::exec_module`.
-    /// 2. Otherwise creates and schedule jobs from compound's expressions.
-    pub(super) fn exec_compound(
-        &self,
-        job: Job,
-        statement: &Statement,
-        compound: &Compound,
-        latest: bool,
-    ) {
-        if self.exec_module(compound) {
-            return;
-        }
-        self.expressions(
-            &compound.inner,
-            self.new_compound_scope(job, statement, compound, latest),
-        );
-    }
 
     /// Same as `Interpreter::exec_num` but with a String.
     pub(super) fn exec_str(&self, val: String, job: Job, latest: bool) {

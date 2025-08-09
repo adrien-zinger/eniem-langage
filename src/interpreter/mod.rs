@@ -16,6 +16,7 @@ mod expressions;
 mod libc;
 mod memory;
 mod write;
+mod compound;
 
 pub(crate) mod job;
 use exec_tree::*;
