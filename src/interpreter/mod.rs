@@ -9,10 +9,13 @@ use std::sync::{Arc, Mutex};
 
 mod assignation;
 mod builtins;
+mod calls;
 mod exec;
 pub mod exec_tree;
+mod expressions;
 mod libc;
 mod memory;
+mod write;
 
 pub(crate) mod job;
 use exec_tree::*;

@@ -1,4 +1,4 @@
-use super::super::{
+use super::{
     job::{EJob, Job},
     memory::{BoxVariable, Variable},
     Interpreter, WriteJob,

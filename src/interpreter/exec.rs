@@ -15,10 +15,6 @@ use super::{
     Interpreter,
 };
 
-mod calls;
-mod expressions;
-mod write;
-
 macro_rules! debug {
     ($($rest:tt)*) => {
         #[cfg(feature = "debug_interpreter")]
