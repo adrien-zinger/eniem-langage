@@ -352,15 +352,45 @@ pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
                 Variable::String(val) => string(&val.lock().unwrap()),
                 Variable::Empty => unreachable!("not allowed"),
                 Variable::Number(val) => number(val.load(Ordering::SeqCst)),
-                Variable::Union(val) => unreachable!("not allowed"),
+                Variable::Union(_) => unreachable!("not allowed"),
                 Variable::Abstract(_) => val.clone(),
             };
             let mut types = types.clone();
             types.push(ty);
             return Arc::new(Variable::Union((val, types)));
         }
-        Variable::Abstract(_) => var.clone(),
+        Variable::Abstract(val) => {
+            let mut types = match &*val {
+                AbstractVariable::Number => vec!["number".to_string()],
+                AbstractVariable::Boolean => vec!["boolean".to_string()],
+                AbstractVariable::String => vec!["string".to_string()],
+                AbstractVariable::Uninit => vec!["uninit".to_string()],
+                AbstractVariable::Union(types) => types.clone(),
+            };
+            types.push(ty);
+            return Arc::new(Variable::Abstract(AbstractVariable::Union(types)));
+        }
     };
 
     Arc::new(Variable::Union((var, vec![ty])))
+}
+
+fn get_types(var: &Arc<Variable>) -> Vec<String> {
+    match &**var {
+        Variable::Boolean(_) => vec!["boolean".to_string()],
+        Variable::Function(_) => vec!["function".to_string()],
+        Variable::String(_) => vec!["string".to_string()],
+        Variable::Empty => vec!["uninit".to_string()],
+        Variable::Number(_) => vec!["number".to_string()],
+        Variable::Union((val, types)) => {
+            let mut res = get_types(val);
+            res.append(&mut types.clone());
+            res
+        }
+        Variable::Abstract(AbstractVariable::Boolean) => vec!["boolean".to_string()],
+        Variable::Abstract(AbstractVariable::String) => vec!["string".to_string()],
+        Variable::Abstract(AbstractVariable::Number) => vec!["number".to_string()],
+        Variable::Abstract(AbstractVariable::Uninit) => vec!["uninit".to_string()],
+        Variable::Abstract(AbstractVariable::Union(types)) => types.clone(),
+    }
 }
