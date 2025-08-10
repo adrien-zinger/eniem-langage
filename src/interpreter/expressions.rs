@@ -1,8 +1,4 @@
-use super::{
-    exec_tree::*,
-    job::*,
-	*
-};
+use super::{exec_tree::*, job::*, *};
 
 use std::sync::atomic::Ordering;
 
@@ -27,7 +23,6 @@ impl Interpreter {
         }
         false
     }
-
 
     /// Same as `Interpreter::exec_num` but with a String.
     pub(super) fn exec_str(&self, val: String, job: Job, latest: bool) {

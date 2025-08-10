@@ -10,13 +10,14 @@ use std::sync::{Arc, Mutex};
 mod assignation;
 mod builtins;
 mod calls;
+mod compound;
 mod exec;
 pub mod exec_tree;
 mod expressions;
 mod libc;
 mod memory;
+mod r#ref;
 mod write;
-mod compound;
 
 pub(crate) mod job;
 use exec_tree::*;
@@ -146,8 +147,10 @@ impl Interpreter {
     }
 
     /// public access to interpreter
-    pub fn run(&self, input: &[Expression]) {
+    pub fn run(&self, input: &[Expression]) -> Arc<Memory> {
         debug!("start interpreter");
+
+        let memory = Arc::new(Memory::default());
 
         self.expressions(
             input,
@@ -155,7 +158,7 @@ impl Interpreter {
                 id: self.new_id(),
                 len: Default::default(),
                 value: Default::default(),
-                memory: Default::default(),
+                memory: memory.clone(),
                 job: None,
             }),
         );
@@ -164,6 +167,8 @@ impl Interpreter {
         if self.is_abstract {
             self.check_functions_types();
         }
+
+        memory
     }
 
     fn schedule(&self, job: Job) {

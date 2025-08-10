@@ -91,7 +91,12 @@ impl Interpreter {
     ///       references extern (in upper scopes).
     /// 2. Register the compound inner expression list within the
     ///    scope by calling `Interpreter::expressions`.
-    pub(super) fn assign_compound(&self, input: &Arc<exec_tree::Compound>, assign: &Assignation, job: Job) {
+    pub(super) fn assign_compound(
+        &self,
+        input: &Arc<exec_tree::Compound>,
+        assign: &Assignation,
+        job: Job,
+    ) {
         debug!("assignation create a scope");
         let value = BoxVariable::default();
         debug!("scope decls: {:?}", input.decls);
