@@ -173,6 +173,7 @@ impl Interpreter {
 
     fn schedule(&self, job: Job) {
         if let Ok(jobs) = &mut self.jobs.lock() {
+            debug!("schedule new job");
             jobs.push_front(job);
         }
     }
@@ -196,6 +197,7 @@ impl Interpreter {
                     }
                 }
                 EExpression::Assignation(input) => {
+                    debug!("interpreter red and scheduled assignation");
                     blocking = input.block_on;
                     Job {
                         inner: EJob::Expression(expr.clone()).into(),
@@ -205,6 +207,7 @@ impl Interpreter {
                     }
                 }
                 EExpression::Declaration(input) => {
+                    debug!("interpreter red and scheduled assignation");
                     blocking = input.block_on;
                     Job {
                         inner: EJob::Expression(expr.clone()).into(),
@@ -234,6 +237,7 @@ impl Interpreter {
         if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
             if let Some(job) = &job.scope.job {
                 // schedule parent (Write or Empty)
+                debug!("scheduling parent");
                 self.schedule(job.clone());
             } else {
                 #[cfg(not(test))] // tolerance in unit tests

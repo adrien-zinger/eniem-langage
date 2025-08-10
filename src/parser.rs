@@ -377,12 +377,11 @@ pub fn function_statement_parameter(s: Span) -> IResult<Span, String> {
 }
 
 pub fn function_statement(s: Span) -> IResult<Span, Statement> {
-    debug!("enter function");
-    println!("function span: {:?}", s);
+    debug!("enter function, span: {:?}", s);
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, _) = tag("(")(s)?;
-    debug!("try to read parameters span: {:?}", s);
+    debug!("try to read parameters");
     let (s, args) = separated_list0(
         tag(","),
         delimited(spacing, function_statement_parameter, spacing),
@@ -465,7 +464,7 @@ pub fn declaration(s: Span) -> IResult<Span, Expression> {
         block_on: block_on.is_some(),
         var: var.to_string(),
         to_assign,
-        modify: true,
+        modify: false,
     };
 
     debug!("return declaration");

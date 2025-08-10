@@ -96,7 +96,7 @@ impl Interpreter {
             function
         } else {
             debug!("function not found {}", call.name);
-            self.schedule(job.to_owned());
+            //self.schedule(job.to_owned());
             return Err(());
         };
         // From memory, get the function definition and the captured
@@ -256,6 +256,7 @@ impl Interpreter {
     ///  latest: is it the latest expression of the current scope.
     ///  write: Some if the result has to be assigned to something, otherwise None.
     ///  modify: In case of a write, should we modify or not the inner value.
+    ///  retry: if function not found, retry later.
     pub(crate) fn call_statement(
         &self,
         call: &Call,
@@ -263,9 +264,18 @@ impl Interpreter {
         latest: bool,
         write: Option<String>,
         modify: bool,
+        retry: bool,
     ) -> Result<(), ()> {
         // Inspect memory and find user function + captured variables.
-        let (function, captures) = self.get_function_and_captures(&job, call)?;
+        let fac_res = self.get_function_and_captures(&job, call);
+        if let Err(err) = fac_res {
+            if retry {
+                self.schedule(job.to_owned());
+            }
+            return Err(err);
+        }
+        let (function, captures) = fac_res.unwrap();
+
         // Compute the scope len which is the compound length, the functions arguments
         // to resolves and the captured variables to setup on the fly, all additionned.
         let scope_len = function.inner.inner.len() + function.args.len() + captures.len();

@@ -296,7 +296,13 @@ impl Scopes {
                     }
                     info
                 } else {
-                    todo!("create new var info on the fly")
+                    debug!("create cast type: {ty}");
+                    VarInfo {
+                        name: ty.clone(),
+                        line,
+                        column,
+                        scope,
+                    }
                 };
 
                 EStatement::RefAs((var_info, ty_info))

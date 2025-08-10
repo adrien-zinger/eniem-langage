@@ -46,7 +46,9 @@ impl Interpreter {
             EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
             EStatement::Num(val) => self.exec_num(*val, job, latest),
             EStatement::Bool(val) => self.exec_bool(*val, job, latest),
-            EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
+            EStatement::Call(call) => self
+                .call_statement(call, job, latest, None, false, true)
+                .unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
             EStatement::Ref(var) => self.exec_ref(&var.to_owned(), None, job, latest),

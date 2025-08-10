@@ -192,6 +192,7 @@ impl Memory {
     /// the `self` box at `key` index. This is call when a user want to mutate a
     /// variable with `b := a` syntax (even with `b := "hello"`). A
     /// variable have to be declared as mutable before.
+    ///
     pub fn write_copy(&self, key: String, value: Arc<Variable>) {
         if let Ok(mem) = &mut self.map.write() {
             mem.entry(key)
@@ -221,7 +222,12 @@ impl Memory {
                             unreachable!("protected")
                         }
                     }
-                    _ => todo!("var assignation"),
+                    Variable::Boolean(_) => todo!("wite copy boolean"),
+                    Variable::Union(_) => todo!("write copy union"),
+                    Variable::Empty => panic!("try to copy uninitialized variable"),
+                    Variable::Abstract(_) => {
+                        unreachable!("write copy is not an abstract manipulation")
+                    }
                 })
                 .or_insert(value);
         } else {
@@ -375,7 +381,7 @@ pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
     Arc::new(Variable::Union((var, vec![ty])))
 }
 
-fn get_types(var: &Arc<Variable>) -> Vec<String> {
+pub fn get_types(var: &Arc<Variable>) -> Vec<String> {
     match &**var {
         Variable::Boolean(_) => vec!["boolean".to_string()],
         Variable::Function(_) => vec!["function".to_string()],

@@ -15,3 +15,6 @@ debug_parser = []
 debug_main = []
 debug_scopes = []
 debug_memory = []
+
+[dev-dependencies]
+ntest = "0.9.3"

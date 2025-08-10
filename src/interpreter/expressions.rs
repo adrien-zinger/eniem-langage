@@ -80,27 +80,9 @@ impl Interpreter {
         self.complete_job(job);
     }
 
-    /// Execute a Ref expression statement. Just an expression with a reference.
-    pub(super) fn exec_ref(&self, ref_id: &str, cast_as: Option<&str>, job: Job, latest: bool) {
-        debug!("process job with single reference {:?}", v);
-        if latest {
-            if let Some(val) = job.scope.memory.find(ref_id, &job) {
-                debug!("store value {:?}", val);
-                job.scope.set_value(val);
-            } else {
-                debug!("reschedule because reference not found");
-                self.schedule(job);
-                return;
-            }
-        }
-        debug!("job complete");
-        self.complete_job(job);
-    }
-
     /// Execute an expression statement function declaration. Not a call.
     /// Put in memory the captured variable if found.
     pub(super) fn exec_function(&self, function: &Function, job: Job, latest: bool) {
-        debug!("function refs: {:?}", statement.refs);
         if latest {
             let mut captures = vec![];
             for c in &function.captures {

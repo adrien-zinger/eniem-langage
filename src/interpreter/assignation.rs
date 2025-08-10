@@ -136,7 +136,7 @@ impl Interpreter {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
         // TODO use the _ bellow
-        let _ = self.call_statement(input, job, false, Some(id), assign.modify);
+        let _ = self.call_statement(input, job, false, Some(id), assign.modify, true);
     }
 
     /// Same as call but with builtins and libc bindings. See alse `call`.
@@ -173,8 +173,8 @@ impl Interpreter {
             EStatement::Call(input) => self.assign_call(input, assign, job),
             EStatement::StdCall(input) => self.assign_std_call(input, assign, job),
             EStatement::Copy(_c) => todo!(),
-            EStatement::Ref(input) => self.assign_ref_statement(input, None, assign, job),
-            EStatement::RefAs((var, ty)) => self.assign_ref_statement(var, Some(ty), assign, job),
+            EStatement::Ref(input) => self.assign_ref(input, assign, job),
+            EStatement::RefAs((var, ty)) => self.assign_ref_as(var, ty, assign, job),
             EStatement::Branch(_branch) => todo!(),
         }
     }
@@ -237,6 +237,21 @@ mod test {
         let interpreter = Interpreter::default();
         let mem = interpreter.run(&tree);
         println!("{:?}", mem.map.read().unwrap());
-        mem.get("main#1:1:a::0").unwrap();
+        let a = mem.get("main#1:1:a::0").unwrap();
+        assert_eq!(memory::get_types(&a), vec!["string".to_string()]);
+    }
+
+    #[test]
+    #[ntest::timeout(300)]
+    fn integration_assign_cast() {
+        let tree = get_exec_tree("let a = \"hello world\" let b = a as thing");
+        let interpreter = Interpreter::default();
+        let mem = interpreter.run(&tree);
+        println!("{:?}", mem.map.read().unwrap());
+        let b = mem.get("main#1:23:b::0").unwrap();
+        assert_eq!(
+            memory::get_types(&b),
+            vec!["string".to_string(), "main#1:41:thing".to_string()]
+        );
     }
 }
