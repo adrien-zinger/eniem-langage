@@ -243,6 +243,23 @@ mod test {
 
     #[test]
     #[ntest::timeout(300)]
+    #[should_panic]
+    fn integration_abstract_assign_cast_fail() {
+        let tree = get_exec_tree(
+            "
+			let bar = (var) {
+				i32_not_equal!(var, 0) /* wrong type detected */
+			};
+			let hello = \"hello world\";
+			let foo = hello as bar;
+		",
+        );
+        let interpreter = Interpreter::abstr();
+        interpreter.run(&tree);
+    }
+
+    #[test]
+    #[ntest::timeout(300)]
     fn integration_assign_cast() {
         let tree = get_exec_tree(
             "

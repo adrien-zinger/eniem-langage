@@ -25,11 +25,6 @@ impl Interpreter {
         let right_part = right_part.unwrap();
 
         let key = format!("{}::{}", assign.var, job.scope.id);
-        if self.is_abstract {
-            let right_part = memory::add_type(&right_part, cast_as.to_string());
-            job.scope.memory.abstr_write(key, right_part);
-            return;
-        }
 
         let copy_key = format!("{}#cast", input);
 
