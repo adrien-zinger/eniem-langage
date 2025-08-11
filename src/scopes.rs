@@ -287,7 +287,12 @@ impl Scopes {
                 } else {
                     self.errors
                         .push(format!("{} not declared in this scope.", var));
-                    todo!("create new var info on the fly")
+                    VarInfo {
+                        name: var.clone(),
+                        line,
+                        column,
+                        scope: scope.clone(),
+                    }
                 };
 
                 let ty_info = if let Some(info) = lookup(&ty, &decls) {
@@ -297,6 +302,8 @@ impl Scopes {
                     info
                 } else {
                     debug!("create cast type: {ty}");
+                    self.errors
+                        .push(format!("{} not declared in this scope.", ty));
                     VarInfo {
                         name: ty.clone(),
                         line,

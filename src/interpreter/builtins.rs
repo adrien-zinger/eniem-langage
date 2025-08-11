@@ -52,10 +52,9 @@ pub fn abstract_i32_not_equal(a: Arc<Variable>, b: Arc<Variable>) -> Result<Arc<
 }
 
 pub fn i32_not_equal(a: Arc<Variable>, b: Arc<Variable>) -> Arc<Variable> {
-    match (&*a, &*b) {
-        (Variable::Number(a), Variable::Number(b)) => {
-            memory::boolean(a.load(Ordering::SeqCst) != b.load(Ordering::SeqCst))
-        }
+    println!("{:?} .... {:?}", a, b);
+    match (memory::to_number(&a), memory::to_number(&b)) {
+        (Some(a), Some(b)) => memory::boolean(a != b),
         _ => unreachable!(),
     }
 }

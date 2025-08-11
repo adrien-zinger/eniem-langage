@@ -46,9 +46,7 @@ impl Interpreter {
             EStatement::Str(val) => self.exec_str(val.clone(), job, latest),
             EStatement::Num(val) => self.exec_num(*val, job, latest),
             EStatement::Bool(val) => self.exec_bool(*val, job, latest),
-            EStatement::Call(call) => self
-                .call_statement(call, job, latest, None, false, true)
-                .unwrap(),
+            EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
             EStatement::Ref(var) => self.exec_ref(&var.to_owned(), None, job, latest),
@@ -205,6 +203,10 @@ impl Interpreter {
             }
             EJob::Builtin(call) => self.exec_builtin(job.to_owned(), call),
             EJob::Empty((value, decls)) => self.exec_empty(job.to_owned(), value, decls),
+            EJob::Cast((value, decls)) => self.exec_cast(job.to_owned(), value, decls),
+            EJob::ApplyCast((var, dest)) => {
+                self.exec_apply_cast(job.to_owned(), var.clone(), dest.to_string())
+            }
             EJob::Expressions(exprs) => self.exec_expressions(job.to_owned(), exprs),
         }
     }

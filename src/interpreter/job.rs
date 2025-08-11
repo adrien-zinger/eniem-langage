@@ -33,6 +33,10 @@ pub enum EJob {
     Expressions(Vec<Expression>),
     /// Write value from box into memory (end scope)
     Write(WriteJob),
+    /// Cast check result, execute nexts jobs if BoxVariable true.
+    Cast((BoxVariable, Vec<String>)),
+    /// Apply cast if check ok.
+    ApplyCast((Arc<Variable>, String)),
     /// Free scope
     Delete(Vec<String>),
     /// End of scope

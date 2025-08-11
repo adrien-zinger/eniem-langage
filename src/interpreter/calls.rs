@@ -32,10 +32,38 @@ impl Interpreter {
         scope_id: u64,
         latest: bool,
     ) -> Arc<Scope> {
+        debug!("new empty scope");
         let value = job.scope.get_new_value(self.is_abstract, latest);
         let memory = job.scope.memory.clone();
         let compound = Job {
             inner: EJob::Empty((value.clone(), decls)).into(),
+            next: job.next,
+            scope: job.scope,
+            fc: function_call.clone(),
+        };
+        Arc::new(Scope {
+            id: scope_id,
+            len: AtomicU64::new(scope_len as u64),
+            value,
+            memory,
+            job: Some(compound),
+        })
+    }
+
+    fn new_cast_scope(
+        &self,
+        job: Job,
+        decls: Vec<String>,
+        function_call: &Option<Arc<Mutex<FunctionCall>>>,
+        scope_len: usize,
+        scope_id: u64,
+        latest: bool,
+    ) -> Arc<Scope> {
+        debug!("new empty scope");
+        let value = job.scope.get_new_value(self.is_abstract, latest);
+        let memory = job.scope.memory.clone();
+        let compound = Job {
+            inner: EJob::Cast((value.clone(), decls)).into(),
             next: job.next,
             scope: job.scope,
             fc: function_call.clone(),
@@ -59,6 +87,7 @@ impl Interpreter {
         tag: String,
         modify: bool,
     ) -> Arc<Scope> {
+        debug!("new write scope");
         let value = BoxVariable::default();
         let job = Job {
             inner: EJob::Write(WriteJob {
@@ -96,7 +125,7 @@ impl Interpreter {
             function
         } else {
             debug!("function not found {}", call.name);
-            //self.schedule(job.to_owned());
+            self.schedule(job.to_owned());
             return Err(());
         };
         // From memory, get the function definition and the captured
@@ -142,7 +171,9 @@ impl Interpreter {
         decls
     }
 
-    /// Call Statement tooling. Generate a new FunctionCall.
+    /// Call Statement tooling. Generate a new FunctionCall. Create a place
+    /// in memory for arguments and captured variables.
+    ///
     /// Return Some(FunctionCall) if we are in an abstract context, None otherwise.
     fn get_function_call(
         &self,
@@ -174,6 +205,8 @@ impl Interpreter {
         }
     }
 
+    /// Create assignations jobs to assign functions parameter/captured with given arguments
+    /// and variables in call site's context.
     fn set_parameters(&self, function: &Function, call: &Call, function_scope: Arc<Scope>) {
         for (index, arg) in function.args.iter().cloned().enumerate() {
             // note: I think this check can be avoid if not in abstract execution.
@@ -256,7 +289,6 @@ impl Interpreter {
     ///  latest: is it the latest expression of the current scope.
     ///  write: Some if the result has to be assigned to something, otherwise None.
     ///  modify: In case of a write, should we modify or not the inner value.
-    ///  retry: if function not found, retry later.
     pub(crate) fn call_statement(
         &self,
         call: &Call,
@@ -264,18 +296,10 @@ impl Interpreter {
         latest: bool,
         write: Option<String>,
         modify: bool,
-        retry: bool,
     ) -> Result<(), ()> {
+        debug!("enter in call statement, call:\n{:#?}", call);
         // Inspect memory and find user function + captured variables.
-        let fac_res = self.get_function_and_captures(&job, call);
-        if let Err(err) = fac_res {
-            if retry {
-                self.schedule(job.to_owned());
-            }
-            return Err(err);
-        }
-        let (function, captures) = fac_res.unwrap();
-
+        let (function, captures) = self.get_function_and_captures(&job, call)?;
         // Compute the scope len which is the compound length, the functions arguments
         // to resolves and the captured variables to setup on the fly, all additionned.
         let scope_len = function.inner.inner.len() + function.args.len() + captures.len();
@@ -287,6 +311,8 @@ impl Interpreter {
         // Compute new scope.
         let function_scope = if let Some(tag) = write {
             self.new_write_scope(job, decls, &function_call, scope_len, scope_id, tag, modify)
+        } else if call.cast {
+            self.new_cast_scope(job, decls, &function_call, scope_len, scope_id, latest)
         } else {
             self.new_empty_scope(job, decls, &function_call, scope_len, scope_id, latest)
         };

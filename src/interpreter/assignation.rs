@@ -136,7 +136,7 @@ impl Interpreter {
         debug!("Execute Call statement in assignation");
         let id = format!("{}::{}", assign.var, job.scope.id);
         // TODO use the _ bellow
-        let _ = self.call_statement(input, job, false, Some(id), assign.modify, true);
+        let _ = self.call_statement(input, job, false, Some(id), assign.modify);
     }
 
     /// Same as call but with builtins and libc bindings. See alse `call`.
@@ -244,14 +244,84 @@ mod test {
     #[test]
     #[ntest::timeout(300)]
     fn integration_assign_cast() {
-        let tree = get_exec_tree("let a = \"hello world\" let b = a as thing");
+        let tree = get_exec_tree(
+            "
+			let bar = () {
+				true /* the bar type can ALWAYS be applied */
+			};
+			let hello = \"hello world\";
+			let foo = hello as bar;
+		",
+        );
         let interpreter = Interpreter::default();
         let mem = interpreter.run(&tree);
-        println!("{:?}", mem.map.read().unwrap());
-        let b = mem.get("main#1:23:b::0").unwrap();
+        println!("{:#?}", mem.map.read().unwrap());
+        let b = mem.get("main#6:4:foo::0").unwrap();
         assert_eq!(
             memory::get_types(&b),
-            vec!["string".to_string(), "main#1:41:thing".to_string()]
+            vec!["string".to_string(), "main#2:4:bar".to_string()]
         );
+    }
+
+    #[test]
+    #[ntest::timeout(300)]
+    fn integration_assign_cast_not0() {
+        let tree = get_exec_tree(
+            "
+			let not0 = (var) {
+				i32_not_equal!(var, 0)
+			};
+			let num = 1;
+			let numnot = num as not0;
+		",
+        );
+        let interpreter = Interpreter::default();
+        let mem = interpreter.run(&tree);
+        println!("{:#?}", mem.map.read().unwrap());
+        let b = mem.get("main#6:4:numnot::0").unwrap();
+        assert_eq!(
+            memory::get_types(&b),
+            vec!["number".to_string(), "main#2:4:not0".to_string()]
+        );
+    }
+
+    #[test]
+    #[ntest::timeout(300)]
+    #[should_panic]
+    fn integration_assign_cast_not0_fail() {
+        let tree = get_exec_tree(
+            "
+			let not0 = (var) {
+				i32_not_equal!(var, 0)
+			};
+			let num = 0;
+			let numnot = num as not0;
+		",
+        );
+        let interpreter = Interpreter::default();
+        let mem = interpreter.run(&tree);
+        println!("{:#?}", mem.map.read().unwrap());
+        let b = mem.get("main#6:4:numnot::0").unwrap();
+        assert_eq!(
+            memory::get_types(&b),
+            vec!["number".to_string(), "main#2:4:not0".to_string()]
+        );
+    }
+
+    #[test]
+    #[ntest::timeout(300)]
+    #[should_panic]
+    fn integration_assign_cast_fail() {
+        let tree = get_exec_tree(
+            "
+			let bar = () {
+				false /* the bar type can NEVER be applied */
+			};
+			let hello = \"hello world\";
+			let foo = hello as bar;      /* panic here */
+		",
+        );
+        let interpreter = Interpreter::default();
+        let mem = interpreter.run(&tree);
     }
 }

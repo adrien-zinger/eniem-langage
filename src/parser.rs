@@ -306,6 +306,7 @@ fn test_compound_statement() {
 
 /// Parsed after "::" in a variable name
 pub fn variable_subname(s: Span) -> IResult<Span, nom_locate::LocatedSpan<&str>> {
+    debug!("enter variable name: {:?}", s);
     let (s, _) = not(tag("true")).parse(s)?;
     let (s, _) = not(tag("false")).parse(s)?;
     let (s, _) = not(tag("in")).parse(s)?;
@@ -381,7 +382,7 @@ pub fn function_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, _) = tag("(")(s)?;
-    debug!("try to read parameters");
+    debug!("try to read parameters, span: {:?}", s);
     let (s, args) = separated_list0(
         tag(","),
         delimited(spacing, function_statement_parameter, spacing),

@@ -64,6 +64,7 @@ pub struct Call {
     pub params: Vec<Statement>,
     pub name: String,
     pub std: StdFunction,
+    pub cast: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -217,6 +218,7 @@ impl Scope2ETree {
             params: val.params.into_iter().map(|s| self.statement(s)).collect(),
             name: format!("{}#{}:{}:{}", n.scope.name, n.line, n.column, n.name),
             std: StdFunction::default(),
+            cast: false,
         }
     }
 

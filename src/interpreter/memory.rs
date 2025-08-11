@@ -337,6 +337,14 @@ pub fn to_boolean(var: &Arc<Variable>) -> Option<bool> {
     }
 }
 
+pub fn to_number(var: &Arc<Variable>) -> Option<i32> {
+    match &**var {
+        Variable::Number(value) => Some(value.load(Ordering::SeqCst)),
+        Variable::Union((inner, _)) => to_number(inner),
+        _ => None,
+    }
+}
+
 /// Return a new variable with the new type
 pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
     let var = match &**var {
@@ -379,6 +387,31 @@ pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
     };
 
     Arc::new(Variable::Union((var, vec![ty])))
+}
+
+pub fn deep_copy(var: &Arc<Variable>) -> Result<Arc<Variable>, ()> {
+    let var_copy = match &**var {
+        Variable::Boolean(val) => boolean(val.load(Ordering::SeqCst)),
+        Variable::Function(val) => {
+            let (fun, cap) = val.lock().unwrap().clone();
+            function(fun, cap)
+        }
+        Variable::String(val) => string(&val.lock().unwrap()),
+        Variable::Empty => {
+            debug!("cannot copy uninitialized type");
+            return Err(());
+        }
+        Variable::Number(val) => number(val.load(Ordering::SeqCst)),
+        Variable::Union((val, types)) => {
+            let val_copy = deep_copy(val)?;
+            Arc::new(Variable::Union((val_copy, types.clone())))
+        }
+        Variable::Abstract(AbstractVariable::Union(types)) => {
+            Arc::new(Variable::Abstract(AbstractVariable::Union(types.clone())))
+        }
+        Variable::Abstract(_) => var.clone(),
+    };
+    Ok(var_copy)
 }
 
 pub fn get_types(var: &Arc<Variable>) -> Vec<String> {

@@ -3,7 +3,8 @@ use super::{
     memory::{BoxVariable, Variable},
     Interpreter, WriteJob,
 };
-use std::sync::atomic::Ordering;
+
+use std::sync::{atomic::Ordering, Arc};
 
 macro_rules! debug {
     ($($rest:tt)*) => {
@@ -33,14 +34,56 @@ impl Interpreter {
                     .insert((fc.id.clone(), fc.inputs.clone()), fc.output.clone());
             }
         }
+
         self.schedule(Job {
             inner: EJob::Delete(decls.to_owned()).into(),
             next: None,
             scope: job.scope.clone(),
             fc: None,
         });
+        debug!("complete empty job");
         self.complete_job(job);
     }
+
+    pub(super) fn exec_apply_cast(&self, job: Job, var: Arc<Variable>, dest: String) {
+        job.scope.memory.write(dest, var);
+        debug!("complete apply cast job");
+        self.complete_job(job);
+    }
+
+    pub(super) fn exec_cast(&self, job: Job, value: &BoxVariable, decls: &[String]) {
+        let cast = unsafe { std::sync::Arc::from_raw(value.load(Ordering::SeqCst)) };
+
+        self.schedule(Job {
+            inner: EJob::Delete(decls.to_owned()).into(),
+            next: None,
+            scope: job.scope.clone(),
+            fc: None,
+        });
+
+        // do a manual "complete job"
+        if job.scope.len.fetch_sub(1, Ordering::SeqCst) == 1 {
+            if let Some(job) = &job.scope.job {
+                match super::memory::to_boolean(&cast) {
+                    Some(true) => {
+                        debug!("scheduling apply cast");
+                        self.schedule(job.clone());
+                    }
+                    _ => panic!("failed to cast variable"),
+                }
+            } else {
+                #[cfg(not(test))] // tolerance in unit tests
+                unreachable!("impossible to reach a scope complete with no parent")
+            }
+        }
+
+        if let Some(ejob) = job.next {
+            if let EJob::Expressions(exprs) = &*ejob {
+                self.expressions(exprs, job.scope);
+            }
+        }
+    }
+
     /// Execute the parent Job of a Scope when the scope has to
     /// `write` his value into memory.
     ///

@@ -11,6 +11,8 @@ macro_rules! debug {
 }
 
 impl Interpreter {
+    /// Takes the right part of the assignation expression, copy the content and
+    /// check if the cast would work or not by calling the type's function definition.
     pub(super) fn assign_ref_as(&self, input: &str, cast_as: &str, assign: &Assignation, job: Job) {
         debug!("try to assign {} as {} from {input}", assign.var, cast_as);
         let right_part = job.scope.memory.find(input, &job);
@@ -20,7 +22,7 @@ impl Interpreter {
             return;
         }
 
-        let mut right_part = right_part.unwrap();
+        let right_part = right_part.unwrap();
 
         let key = format!("{}::{}", assign.var, job.scope.id);
         if self.is_abstract {
@@ -29,48 +31,56 @@ impl Interpreter {
             return;
         }
 
-        let cast_key = format!("{}::{}", cast_as, job.scope.id);
-        if let Some(cast_res) = job.scope.memory.get(&cast_key) {
-            if let Some(is_casted) = memory::to_boolean(&cast_res) {
-                if is_casted {
-                    debug!("cast sucess");
-                    right_part = memory::add_type(&right_part, cast_as.to_string());
-                } else {
-                    panic!("cast error");
-                }
-            } else {
-                debug!("waiting cast check result");
-                self.schedule(job);
-                return;
-            }
-        } else {
-            debug!("going to define {cast_key}");
-            let call = Call {
-                block_on: false,
-                params: vec![],
-                name: cast_as.to_string(),
-                std: StdFunction::default(),
-            };
-            if self
-                .call_statement(&call, job.clone(), false, Some(cast_key), true, false)
-                .is_ok()
-            {
-                debug!("call cast check function, wait now for cast_key to be init");
-                self.schedule(job);
-                return;
-            } else {
-                debug!("set right part as {cast_as} w/o calling function");
-                right_part = memory::add_type(&right_part, cast_as.to_string());
-            }
-        }
+        let copy_key = format!("{}#cast", input);
 
-        if assign.modify {
-            job.scope.memory.write_copy(key, right_part);
-        } else {
-            debug!("write {:?} into {key}", right_part);
-            job.scope.memory.write(key, right_part);
-        }
-        self.complete_job(job);
+        let copy = memory::add_type(&right_part, cast_as.to_string());
+
+        let job = Job {
+            inner: EJob::ApplyCast((copy.clone(), key)).into(),
+            scope: job.scope,
+            next: job.next,
+            fc: None,
+        };
+
+        let scope = Scope {
+            id: self.new_id(),
+            len: AtomicU64::new(1),
+            value: BoxVariable::default(),
+            memory: job.scope.memory.clone(),
+            job: Some(job),
+        };
+
+        let call = Call {
+            block_on: false,
+            params: vec![Statement {
+                inner: EStatement::Ref(copy_key.clone()),
+                refs: Default::default(),
+            }],
+            name: cast_as.to_string(),
+            cast: true,
+            std: StdFunction::default(),
+        };
+
+        let job = Job {
+            inner: EJob::Expression(Expression {
+                latest: true,
+                inner: EExpression::Statement(Statement {
+                    inner: EStatement::Call(call),
+                    refs: Default::default(),
+                }),
+            })
+            .into(),
+            scope: scope.into(),
+            next: None,
+            fc: None,
+        };
+
+        debug!("write {:?} into {copy_key}", copy);
+        job.scope
+            .memory
+            .write(format!("{copy_key}::{}", job.scope.id), copy.clone());
+        job.scope.memory.find(&copy_key, &job).unwrap();
+        self.schedule(job);
     }
 
     /// Interprets assignation of a ref to another.
