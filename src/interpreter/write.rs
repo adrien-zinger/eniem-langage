@@ -51,6 +51,12 @@ impl Interpreter {
         self.complete_job(job);
     }
 
+    pub(super) fn exec_apply_cast_scope(&self, job: Job, var: Arc<Variable>) {
+        job.scope.set_value(var);
+        debug!("complete apply cast cost job");
+        self.complete_job(job);
+    }
+
     pub(super) fn exec_cast(&self, job: Job, value: &BoxVariable, decls: &[String]) {
         let cast = unsafe { std::sync::Arc::from_raw(value.load(Ordering::SeqCst)) };
 

@@ -35,8 +35,10 @@ pub enum EJob {
     Write(WriteJob),
     /// Cast check result, execute nexts jobs if BoxVariable true.
     Cast((BoxVariable, Vec<String>)),
-    /// Apply cast if check ok.
+    /// Apply cast if check ok. Set the variable into the tag.
     ApplyCast((Arc<Variable>, String)),
+    /// Apply cast if check ok. Set variable into current scope value.
+    ApplyCastScope(Arc<Variable>),
     /// Free scope
     Delete(Vec<String>),
     /// End of scope

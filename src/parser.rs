@@ -252,7 +252,7 @@ fn bool_statement(s: Span) -> IResult<Span, Statement> {
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, val) = alt((tag("true"), tag("false"))).parse(s)?;
-    alt((multispace1, tag(")"), tag(","))).parse(s)?;
+    alt((multispace1, tag(";"), tag(")"), tag(","))).parse(s)?;
     let (s, _) = spacing(s)?;
     debug!("bool, fragment: {}", s.fragment());
     let val = val.to_string() == "true";
@@ -368,13 +368,7 @@ fn test_variable_name() {
 }
 
 pub fn function_statement_parameter(s: Span) -> IResult<Span, String> {
-    let (s, pos) = position(s)?;
-    let vname = variable_name(s);
-    if vname.is_err() {
-        println!("spot real error");
-        return Ok((s, String::from("ref")));
-    }
-    vname
+    variable_name(s)
 }
 
 pub fn function_statement(s: Span) -> IResult<Span, Statement> {
@@ -426,15 +420,13 @@ fn test_function_statement() {
     assert!(function_statement(Span::new("(){ let a = \"abc\"; }")).is_ok());
     assert!(function_statement(Span::new("){}")).is_err());
     assert!(function_statement(Span::new("({}")).is_err());
-
-    /* those errors are accepted somehow */
-    assert!(function_statement(Span::new("(,){}")).is_ok());
-    assert!(function_statement(Span::new("(  ,,){}")).is_ok());
+    assert!(function_statement(Span::new("(,){}")).is_err());
+    assert!(function_statement(Span::new("(  ,,){}")).is_err());
 }
 
 /// Parse function declaration
 pub fn declaration(s: Span) -> IResult<Span, Expression> {
-    debug!("enter declaration {}", s.fragment());
+    debug!("enter declaration, Span: {:#?}", s);
     let (s, _) = spacing(s)?;
     let (s, pos) = position(s)?;
     let (s, block_on) = opt(delimited(spacing, tag("await"), spacing)).parse(s)?;
@@ -576,13 +568,13 @@ pub fn call_statement(s: Span) -> IResult<Span, Statement> {
 
 #[test]
 fn test_call_statement() {
-    // assert!(call_statement(Span::new("foo()")).is_ok());
-    // assert!(call_statement(Span::new("foo(a, b)")).is_ok());
-    // assert!(call_statement(Span::new("foo((){}, b)")).is_ok());
-    // assert!(call_statement(Span::new("foo(\"abc\", b)")).is_ok());
+    assert!(call_statement(Span::new("foo()")).is_ok());
+    assert!(call_statement(Span::new("foo(a, b)")).is_ok());
+    assert!(call_statement(Span::new("foo((){}, b)")).is_ok());
+    assert!(call_statement(Span::new("foo(\"abc\", b)")).is_ok());
     assert!(call_statement(Span::new("foo  (copy a, copy b)")).is_ok());
-    // assert!(call_statement(Span::new("await foo()")).is_ok());
-    // assert!(call_statement(Span::new("await()")).is_err());
+    assert!(call_statement(Span::new("await foo()")).is_ok());
+    assert!(call_statement(Span::new("await()")).is_err());
     let (_, call) = call_statement(Span::new("foo!()")).unwrap();
     match call.inner {
         EStatement::StdCall(_) => {}

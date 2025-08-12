@@ -78,6 +78,12 @@ pub fn builtin_printf(args: &[Arc<Variable>]) -> i32 {
                     Variable::Boolean(boolean) => {
                         printf(s.as_ptr(), boolean.load(Ordering::SeqCst) as c_int)
                     }
+                    Variable::Union((var, _)) => match &**var {
+                        Variable::Boolean(boolean) => {
+                            printf(s.as_ptr(), boolean.load(Ordering::SeqCst) as c_int)
+                        }
+                        _ => todo!("implement union type in printf"),
+                    },
                     _ => {
                         unreachable!("not managed");
                     }

@@ -389,6 +389,7 @@ pub fn add_type(var: &Arc<Variable>, ty: String) -> Arc<Variable> {
     Arc::new(Variable::Union((var, vec![ty])))
 }
 
+/*
 pub fn deep_copy(var: &Arc<Variable>) -> Result<Arc<Variable>, ()> {
     let var_copy = match &**var {
         Variable::Boolean(val) => boolean(val.load(Ordering::SeqCst)),
@@ -413,6 +414,7 @@ pub fn deep_copy(var: &Arc<Variable>) -> Result<Arc<Variable>, ()> {
     };
     Ok(var_copy)
 }
+*/
 
 pub fn get_types(var: &Arc<Variable>) -> Vec<String> {
     match &**var {

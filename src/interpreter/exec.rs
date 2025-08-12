@@ -49,8 +49,10 @@ impl Interpreter {
             EStatement::Call(call) => self.call_statement(call, job, latest, None, false).unwrap(),
             EStatement::StdCall(call) => self.std_call_statement(call, job, latest, None, false),
             EStatement::Copy(_v) => todo!(),
-            EStatement::Ref(var) => self.exec_ref(&var.to_owned(), None, job, latest),
-            EStatement::RefAs((var, ty)) => self.exec_ref(&var.to_owned(), Some(ty), job, latest),
+            EStatement::Ref(var) => self.exec_ref(&var.to_owned(), job, latest),
+            EStatement::RefAs((var, cast_as)) => {
+                self.exec_ref_as(&var.to_owned(), cast_as, job, latest)
+            }
             EStatement::Function(var) => self.exec_function(var, job, latest),
             EStatement::Branch(_branch) => todo!(),
         }
@@ -207,6 +209,7 @@ impl Interpreter {
             EJob::ApplyCast((var, dest)) => {
                 self.exec_apply_cast(job.to_owned(), var.clone(), dest.to_string())
             }
+            EJob::ApplyCastScope(var) => self.exec_apply_cast_scope(job.to_owned(), var.clone()),
             EJob::Expressions(exprs) => self.exec_expressions(job.to_owned(), exprs),
         }
     }

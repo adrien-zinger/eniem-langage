@@ -27,7 +27,7 @@ fn main() {
         ast
     );
     use std::io::Write;
-    std::fs::File::create("ast")
+    std::fs::File::create("out.ast1")
         .unwrap()
         .write_all(format!("{:#?}", ast).as_bytes())
         .unwrap();

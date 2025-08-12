@@ -49,7 +49,7 @@ impl Scope {
 
     /// Get a new value for a new scope that is a "child" of this scope.
     ///
-    /// Set latest to true if you want the new scope position is at the end
+    /// Set latest to true if you want that the new scope position be at the end
     /// of the current scope. i.e. `{ let a = 1; {a} }`, `{a}` is at the end.
     /// It implies that the first compound return value IS the inner compound
     /// (`{a}` in the example) return value.
