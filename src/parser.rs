@@ -61,7 +61,7 @@ fn extension(s: Span) -> IResult<Span, u8> {
 fn statement(s: Span) -> IResult<Span, Statement> {
     debug!("enter statement");
     debug!("statement fragment: {}", s.fragment());
-
+    let (s, pos) = position(s)?;
     let case1 = opt(alt((function_statement, compound_statement))).parse(s)?;
     if let (s, Some(statement)) = case1 {
         debug!("function or compound statement found");
@@ -73,7 +73,18 @@ fn statement(s: Span) -> IResult<Span, Statement> {
 
     let s = case1.0;
     debug!("statement case 2, fragment: {}", s.fragment());
-    let (s, statement) = alt((branch_statement, operation_statement)).parse(s)?;
+    let statement_res = alt((branch_statement, operation_statement)).parse(s);
+
+    if statement_res.is_err() {
+        println!(
+            "parse error: exptected a statement line {}\n\t{} >here< {}",
+            pos.location_line(),
+            str::from_utf8(pos.get_line_beginning()).unwrap(),
+            s.fragment().split("\n").next().unwrap()
+        );
+    }
+
+    let (s, statement) = statement_res?;
     let (s, _exts) = many0(extension).parse(s).unwrap_or((s, vec![]));
     debug!("extensions: {:?}", _exts);
     let (s, _) = opt(tag(";")).parse(s)?;

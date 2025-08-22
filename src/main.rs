@@ -21,7 +21,12 @@ fn main() {
     }
 
     let input = std::fs::read_to_string(&args[1]).unwrap();
-    let ast: Vec<Expression> = expressions(Span::new(&input)).unwrap().1;
+    let ast: Vec<Expression> = if let Ok(ast) = expressions(Span::new(&input)) {
+        ast.1
+    } else {
+        return;
+    };
+
     debug!(
         "\n\n --------- ast ------\n\n {:#?} \n\n ----------------------",
         ast
